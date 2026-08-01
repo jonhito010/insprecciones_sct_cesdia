@@ -23,20 +23,26 @@ class InspeccionRinesTable extends Table
     public function beforeMarshal(EventInterface $event, ArrayObject $data, ArrayObject $options): void
     {
         // Filas nuevas: solo numero_llanta; par_rines deprecada → NULL.
-        if ($this->getSchema()->hasColumn('numero_llanta')) {
-            if (array_key_exists('numero_llanta', $data) && $data['numero_llanta'] !== null && $data['numero_llanta'] !== '') {
-                $data['par_rines'] = null;
-            }
-            // Si llega par_rines numérico legado desde UI antigua ("7"), mapear a numero_llanta.
-            if (
-                (!isset($data['numero_llanta']) || $data['numero_llanta'] === '' || $data['numero_llanta'] === null)
-                && isset($data['par_rines'])
-                && is_string($data['par_rines'])
-                && preg_match('/^\d{1,2}$/', trim($data['par_rines']))
-            ) {
-                $data['numero_llanta'] = (int)trim($data['par_rines']);
-                $data['par_rines'] = null;
-            }
+        if (!$this->getSchema()->hasColumn('numero_llanta')) {
+            return;
+        }
+
+        $tieneNumero = $data->offsetExists('numero_llanta')
+            && $data['numero_llanta'] !== null
+            && $data['numero_llanta'] !== '';
+        if ($tieneNumero) {
+            $data['par_rines'] = null;
+        }
+
+        // Si llega par_rines numérico legado desde UI antigua ("7"), mapear a numero_llanta.
+        if (
+            !$tieneNumero
+            && $data->offsetExists('par_rines')
+            && is_string($data['par_rines'])
+            && preg_match('/^\d{1,2}$/', trim($data['par_rines']))
+        ) {
+            $data['numero_llanta'] = (int)trim($data['par_rines']);
+            $data['par_rines'] = null;
         }
     }
 

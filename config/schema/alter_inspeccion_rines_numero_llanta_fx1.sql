@@ -43,6 +43,7 @@ WHERE `par_rines` IS NOT NULL
 
 SELECT COUNT(*) AS fx1_filas_legacy_a_expandir FROM `_fx1_rines_expand`;
 
+-- Dos INSERT (MySQL no permite reabrir la misma TEMPORARY TABLE en un UNION).
 INSERT INTO `inspeccion_rines` (
     `inspeccion_id`, `par_rines`, `numero_llanta`,
     `num_sujetadores`, `sujetadores_cumple`, `maza_cumple`, `balero_cumple`
@@ -55,8 +56,12 @@ SELECT
     e.`sujetadores_cumple`,
     e.`maza_cumple`,
     e.`balero_cumple`
-FROM `_fx1_rines_expand` e
-UNION ALL
+FROM `_fx1_rines_expand` e;
+
+INSERT INTO `inspeccion_rines` (
+    `inspeccion_id`, `par_rines`, `numero_llanta`,
+    `num_sujetadores`, `sujetadores_cumple`, `maza_cumple`, `balero_cumple`
+)
 SELECT
     e.`inspeccion_id`,
     NULL,
