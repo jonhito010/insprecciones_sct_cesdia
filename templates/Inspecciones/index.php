@@ -239,16 +239,14 @@ $formularioEtiquetas = [
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
               </a>
               <?php if (!empty($esAdministrador) && $esAdministrador) : ?>
-                <?= $this->Form->postLink(
-                    '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M6 6l1 16h10l1-16"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>',
-                    ['action' => 'delete', $ins->id],
-                    [
-                        'escape' => false,
-                        'class' => 'tbl-action-btn danger',
-                        'title' => 'Eliminar inspección',
-                        'confirm' => '¿Eliminar la inspección ' . ($folioRaw !== '' ? $folioRaw : ('#' . (int)$ins->id)) . '? Esta acción no se puede deshacer.',
-                    ]
-                ) ?>
+                <button type="button"
+                  class="tbl-action-btn danger"
+                  title="Cancelar inspección (conserva folio)"
+                  aria-label="Cancelar inspección"
+                  data-cesdia-cancel-id="<?= (int)$ins->id ?>"
+                  data-cesdia-cancel-folio="<?= h($folioRaw !== '' ? $folioRaw : ('#' . (int)$ins->id)) ?>">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M6 6l1 16h10l1-16"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>
+                </button>
               <?php endif; ?>
               <span class="tbl-actions__sep" aria-hidden="true"></span>
               <a href="<?= $this->Url->build(['action' => 'pdf', $ins->id]) ?>"
@@ -297,6 +295,16 @@ $formularioEtiquetas = [
 
 </div>
 
+<?php if (!empty($esAdministrador) && $esAdministrador) : ?>
+<?= $this->Form->create(null, [
+  'id' => 'cesdia-cancel-form',
+  'url' => ['action' => 'delete', 0],
+  'style' => 'display:none',
+]) ?>
+  <?= $this->Form->hidden('motivo_cancelacion', ['id' => 'cesdia-cancel-motivo', 'value' => '']) ?>
+<?= $this->Form->end() ?>
+<?php endif; ?>
+
 <?php $this->start('script') ?>
 <script>
 function filtrarTabla(q) {
@@ -306,5 +314,34 @@ function filtrarTabla(q) {
     rows[i].style.display = rows[i].textContent.toLowerCase().indexOf(term) > -1 ? '' : 'none';
   }
 }
+(function () {
+  var form = document.getElementById('cesdia-cancel-form');
+  var motivoInp = document.getElementById('cesdia-cancel-motivo');
+  if (!form || !motivoInp) {
+    return;
+  }
+  var baseAction = <?= json_encode($this->Url->build(['action' => 'delete', 0]), JSON_HEX_TAG | JSON_HEX_APOS | JSON_UNESCAPED_UNICODE) ?>;
+  document.querySelectorAll('[data-cesdia-cancel-id]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var id = btn.getAttribute('data-cesdia-cancel-id');
+      var folio = btn.getAttribute('data-cesdia-cancel-folio') || ('#' + id);
+      if (!window.confirm('¿Cancelar la inspección ' + folio + '?\n\nLa fila se conserva con estatus CANCELADA y el folio NO se reutiliza.')) {
+        return;
+      }
+      var motivo = window.prompt('Motivo de cancelación (obligatorio):', '');
+      if (motivo === null) {
+        return;
+      }
+      motivo = String(motivo).trim();
+      if (!motivo) {
+        alert('Debe indicar un motivo de cancelación.');
+        return;
+      }
+      motivoInp.value = motivo.slice(0, 255);
+      form.action = baseAction.replace(/\/0(\/?)$/, '/' + id + '$1');
+      form.submit();
+    });
+  });
+})();
 </script>
 <?php $this->end() ?>
