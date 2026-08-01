@@ -28,13 +28,10 @@ $modeloTxt = $v ? trim(implode(' ', array_filter([(string)($v->marca ?? ''), (st
 $serieTxt  = $v && !empty($v->niv) ? h($v->niv) : '—';
 $placasTxt = $v && !empty($v->placas) ? h($v->placas) : '—';
 $uvNombre  = $u && !empty($u->nombre) ? h($u->nombre) : 'CESDIA';
-$folioRawPdf = (string)($inspeccion->folio_dictamen ?? '');
-// P2.4: F-19 imprime A-{consecutivo}
-if (($inspeccion->tipo_formulario ?? '') === 'F19_REMOLQUE' && $folioRawPdf !== '') {
-    if (preg_match('/^A-?(.+)$/i', $folioRawPdf, $fm)) {
-        $folioRawPdf = 'A-' . ltrim($fm[1], '-');
-    }
-}
+$folioRawPdf = \App\Validation\Nom068Formato::folioImpreso(
+    (string)($inspeccion->folio_dictamen ?? ''),
+    (string)($inspeccion->tipo_formulario ?? '')
+);
 $folio     = $folioRawPdf !== '' ? h($folioRawPdf) : '—';
 $dictamenTxt = method_exists($inspeccion, 'getDictamenEfectivo')
     ? (string)($inspeccion->getDictamenEfectivo() ?? '')
@@ -732,13 +729,22 @@ if ($tipoFormulario === 'F19_REMOLQUE') {
     $add($secciones, 'CABINA', $secCabinaPdf);
 }
 
-/* ── Pie de medición: una fila por N° de llanta real de la unidad (EXTERNA prioritaria) ── */
-$numerosPie = $gruposNum !== [] ? $gruposNum : [1, 2, 3, 4];
+/* ── Pie de medición: SIEMPRE filas completas del formato (P2.2); captura puede tener menos ── */
+$numerosPie = \App\Validation\Nom068Formato::numerosPiePdf((string)$tipoFormulario);
 $llantaMap = [];
 foreach ($numerosPie as $n) {
     $ext = $llBy[$n]['EXTERNA'] ?? null;
     $int = $llBy[$n]['INTERNA'] ?? null;
     $llantaMap[$n] = $ext ?? $int;
+}
+$rinesByPar = [];
+if (!empty($inspeccion->inspeccion_rines)) {
+    foreach ($inspeccion->inspeccion_rines as $rinRow) {
+        $par = (string)($rinRow->par_rines ?? '');
+        if ($par !== '') {
+            $rinesByPar[$par] = $rinRow;
+        }
+    }
 }
 
 /* Varillas por par (mm + resultado CUMPLE/NO CUMPLE en BD; texto en PDF: Aprobado/Rechazado) */
@@ -1111,15 +1117,16 @@ $pdfSymLl = static function (?string $vx) use ($mk): string {
         </thead>
         <tbody>
           <?php foreach ($numerosPie as $n):
-            $llR = $llantaMap[$n] ?? null;
+            $rin = $rinesByPar[(string)$n] ?? $rinesByPar[$n] ?? null;
+            $maza = strtoupper((string)($rin->maza_cumple ?? ''));
           ?>
           <tr>
             <td class="ll-num"><?= $n ?></td>
-            <td></td>
-            <td><?= $llR ? h($pdfSymLl($llR->banda_rodamiento ?? null)) : '' ?></td>
-            <td><?= $llR ? h($pdfSymLl($llR->costados ?? null)) : '' ?></td>
-            <td><?= $llR ? h($pdfSymLl($llR->rin_condicion ?? null)) : '' ?></td>
-            <td><?= $llR ? h($pdfSymLl($llR->presion_cumple ?? null)) : '' ?></td>
+            <td><?= $rin && ($rin->num_sujetadores ?? '') !== '' && ($rin->num_sujetadores ?? null) !== null ? h((string)$rin->num_sujetadores) : '' ?></td>
+            <td><?= $maza === 'CUMPLE' ? '✓' : '' ?></td>
+            <td><?= $maza === 'NO CUMPLE' ? '✗' : '' ?></td>
+            <td><?= $maza === 'N/A' ? '✓' : '' ?></td>
+            <td><?= $rin ? h($pdfSymLl($rin->balero_cumple ?? null)) : '' ?></td>
           </tr>
           <?php endforeach; ?>
         </tbody>
