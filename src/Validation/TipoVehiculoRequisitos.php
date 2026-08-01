@@ -19,32 +19,50 @@ final class TipoVehiculoRequisitos
     ];
 
     /**
-     * Llantas del Dolly (F-20) según el formato oficial (webroot/camposTXT/F-20_DOLLY.txt):
-     * 3 grupos — 1/2 EXTERIOR, 5/6 INTERIOR, 7/8 EXTERIOR.
+     * P2.3 · Dolly: captura de mediciones por posición 1…8 (tabla complementaria del formato).
+     * D1 (1 eje) = 4 filas; D2 (2 ejes) = 8 filas. PDF F-20 siempre imprime 8 filas.
      *
      * @var list<array{0:int,1:string}>
      */
     private const DOLLY_SLOTS = [
-        [1, 'EXTERNA'], [5, 'INTERNA'], [7, 'EXTERNA'],
+        [1, 'EXTERNA'], [2, 'EXTERNA'], [3, 'EXTERNA'], [4, 'EXTERNA'],
+        [5, 'EXTERNA'], [6, 'EXTERNA'], [7, 'EXTERNA'], [8, 'EXTERNA'],
     ];
 
-    /** Etiquetas visibles de las llantas del Dolly (clave "numero|POSICION"). */
+    /** Etiquetas Dolly (clave "numero|POSICION"). */
     private const DOLLY_LABELS = [
+        '1|EXTERNA' => 'LLANTA 1',
+        '2|EXTERNA' => 'LLANTA 2',
+        '3|EXTERNA' => 'LLANTA 3',
+        '4|EXTERNA' => 'LLANTA 4',
+        '5|EXTERNA' => 'LLANTA 5',
+        '6|EXTERNA' => 'LLANTA 6',
+        '7|EXTERNA' => 'LLANTA 7',
+        '8|EXTERNA' => 'LLANTA 8',
+    ];
+
+    /** Etiquetas F-21 autobús: grupos 7 y 8 individuales (no "Llanta 4 EXTERNA/INTERNA"). */
+    private const AUTOBUS_LABELS = [
         '1|EXTERNA' => 'LLANTA 1/2 EXTERIOR',
-        '5|INTERNA' => 'LLANTA 5/6 INTERIOR',
-        '7|EXTERNA' => 'LLANTA 7/8 EXTERIOR',
+        '1|INTERNA' => 'LLANTA 1/2 INTERIOR',
+        '2|EXTERNA' => 'LLANTA 3/4 EXTERIOR',
+        '2|INTERNA' => 'LLANTA 3/4 INTERIOR',
+        '3|EXTERNA' => 'LLANTA 5/6 EXTERIOR',
+        '3|INTERNA' => 'LLANTA 5/6 INTERIOR',
+        '4|EXTERNA' => 'LLANTA 7',
+        '4|INTERNA' => 'LLANTA 8',
     ];
 
     /** @var array<string, array{ejes:int, llantas:int, detalle:string, indices:list<int>}> */
     private const TIPOS = [
         'D1' => [
-            'ejes' => 1, 'llantas' => 3,
-            'detalle' => 'Dolly 1 eje',
+            'ejes' => 1, 'llantas' => 4,
+            'detalle' => 'Dolly 1 eje (4 mediciones; PDF 8 filas)',
             'indices' => [],
         ],
         'D2' => [
-            'ejes' => 2, 'llantas' => 3,
-            'detalle' => 'Dolly 2 ejes',
+            'ejes' => 2, 'llantas' => 8,
+            'detalle' => 'Dolly 2 ejes (8 mediciones)',
             'indices' => [],
         ],
         'T2' => [
@@ -404,7 +422,10 @@ final class TipoVehiculoRequisitos
     public static function slotsParaTipo(string $tipo): array
     {
         $t = strtoupper(trim($tipo));
-        if ($t === 'D1' || $t === 'D2') {
+        if ($t === 'D1') {
+            return array_slice(self::DOLLY_SLOTS, 0, 4);
+        }
+        if ($t === 'D2') {
             return self::DOLLY_SLOTS;
         }
 
@@ -429,6 +450,9 @@ final class TipoVehiculoRequisitos
         $clave = self::claveSlot($num, $pos);
         if (($t === 'D1' || $t === 'D2') && isset(self::DOLLY_LABELS[$clave])) {
             return self::DOLLY_LABELS[$clave];
+        }
+        if ($t === 'AB' && isset(self::AUTOBUS_LABELS[$clave])) {
+            return self::AUTOBUS_LABELS[$clave];
         }
 
         return 'Llanta ' . $num . ' — ' . strtoupper(trim($pos));

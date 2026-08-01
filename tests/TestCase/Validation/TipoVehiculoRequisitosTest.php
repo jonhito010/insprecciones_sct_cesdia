@@ -66,6 +66,14 @@ class TipoVehiculoRequisitosTest extends TestCase
     {
         $masterLen = 12;
         foreach (TipoVehiculoRequisitos::codigos() as $codigo) {
+            // D1/D2 usan DOLLY_SLOTS (no índices MASTER).
+            if (in_array($codigo, ['D1', 'D2'], true)) {
+                $slots = TipoVehiculoRequisitos::slotsParaTipo($codigo);
+                $def = TipoVehiculoRequisitos::definicion($codigo);
+                $this->assertNotNull($def);
+                $this->assertCount($def['llantas'], $slots);
+                continue;
+            }
             $def = TipoVehiculoRequisitos::definicion($codigo);
             $this->assertNotNull($def);
             $this->assertCount($def['llantas'], $def['indices'], "count(indices) === llantas para {$codigo}");
