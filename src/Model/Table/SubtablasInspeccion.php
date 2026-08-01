@@ -135,8 +135,8 @@ class SubtablasInspeccion
     public static function seccionesParaFormulario(string $tipo): array
     {
         $base = [
-            'InspeccionLlantas', 'InspeccionRines', 'InspeccionSuspension',
-            'InspeccionChasis', 'InspeccionFrenos', 'InspeccionSistemaAire',
+            'InspeccionLlantas', 'InspeccionRines', 'InspeccionObservaciones',
+            'InspeccionSuspension', 'InspeccionChasis', 'InspeccionFrenos', 'InspeccionSistemaAire',
         ];
 
         return match(strtoupper(trim($tipo))) {
