@@ -37,21 +37,35 @@ final class RemolqueHtmlPdf
         $acopl = $inspeccion->inspeccion_acoplamiento ?? null;
         $frRem = $inspeccion->inspeccion_frenos ?? $inspeccion->inspeccion_freno ?? null;
 
+        $carPick = static function (?object $car, string $nuevo, ?string $legacy = null) use ($cumple): string {
+            $v = $car?->$nuevo ?? null;
+            if ($v === null || $v === '') {
+                $v = $legacy !== null ? ($car?->$legacy ?? null) : null;
+            }
+
+            return $cumple($v);
+        };
         $marcadores = [
             '{{cuerpo_tanque}}'          => $cumple($car?->cuerpo_tanque),
             '{{tanque_valvulas}}'        => $cumple($car?->tanque_valvulas),
             '{{contenedores_presion}}'   => $cumple($car?->contenedores_presion),
-            '{{piso}}'                   => $cumple($car?->piso),
-            '{{laterales}}'              => $cumple($car?->laterales),
-            '{{laterales_soporte}}'      => $cumple($car?->laterales_soporte),
-            '{{puertas}}'                => $cumple($car?->puertas),
-            '{{plataforma}}'             => $cumple($car?->plataforma),
-            '{{laterales_estaca}}'       => $cumple($car?->laterales_estaca),
-            '{{puertas_tolva}}'          => $cumple($car?->puertas_tolva),
-            '{{puntos_sujecion}}'        => $cumple($car?->puntos_sujecion),
+            '{{piso}}'                   => $carPick($car, 'grano_piso', 'piso'),
+            '{{laterales}}'              => $carPick($car, 'grava_laterales_soporte', 'laterales'),
+            '{{laterales_soporte}}'      => $carPick($car, 'grano_lados_soporte', 'laterales_soporte'),
+            '{{puertas}}'                => $carPick($car, 'otro_puertas', 'puertas'),
+            '{{plataforma}}'             => $carPick($car, 'plataforma_plana', 'plataforma'),
+            '{{laterales_estaca}}'       => $carPick($car, 'plataforma_laterales_estacas', 'laterales_estaca'),
+            '{{puertas_tolva}}'          => $carPick($car, 'grava_puertas_tolva', 'puertas_tolva'),
+            '{{puntos_sujecion}}'        => $carPick($car, 'sujecion_puntos_equipo', 'puntos_sujecion'),
             '{{equipo_sujecion}}'        => $cumple($car?->equipo_sujecion),
-            '{{condicion_carga}}'        => $cumple($car?->condicion_carga),
+            '{{condicion_carga}}'        => $carPick($car, 'sujecion_condicion_carga', 'condicion_carga'),
             '{{tipo_carroceria}}'        => $num($car?->tipo_carroceria),
+            '{{grano_piso}}'             => $carPick($car, 'grano_piso', 'piso'),
+            '{{grava_piso}}'             => $carPick($car, 'grava_piso', 'piso'),
+            '{{otro_piso}}'              => $carPick($car, 'otro_piso', 'piso'),
+            '{{otro_laterales}}'         => $carPick($car, 'otro_laterales', 'laterales'),
+            '{{otro_sujetadores_mangueras}}' => $carPick($car, 'otro_sujetadores_mangueras', 'sujetadores_mangueras'),
+
             '{{frenos_electricos}}'      => $cumple($frRem?->frenos_electricos),
             '{{frenos_electricos_ret}}'  => $cumple($frRem?->frenos_electricos_ret),
             '{{quinta_rueda}}'           => $cumple($acopl?->quinta_rueda),

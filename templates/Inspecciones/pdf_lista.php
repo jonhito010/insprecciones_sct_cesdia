@@ -611,29 +611,37 @@ if ($tipoFormulario === 'F19_REMOLQUE') {
         ['nom'=>'57','d'=>'','v'=>'✓','m'=>'','txt'=>'TANQUE, VALVULA, MANGUERAS, ESCOTILLAS, BISAGRAS, DEFENSA', 'val'=> $car?->tanque_valvulas],
     ]);
     $add($secciones, 'VIGAS Y MONTAJE DEL CHASIS', $secVigasF19);
+    $carVal = static function (?object $car, string $nuevo, ?string $legacy = null) {
+        $v = $car?->$nuevo ?? null;
+        if ($v !== null && $v !== '') {
+            return $v;
+        }
+
+        return $legacy !== null ? ($car?->$legacy ?? null) : null;
+    };
     $add($secciones, 'CAJAS PARA GRANO Y PARA RESIDUOS DE MATERIAL SOLIDO', [
-        ['nom'=>'58','d'=>'','v'=>'✓','m'=>'','txt'=>'LADOS, SOPORTE LATERALES', 'val'=> $car?->laterales_soporte],
-        ['nom'=>'58','d'=>'','v'=>'✓','m'=>'','txt'=>'PISO', 'val'=> $car?->piso],
-        ['nom'=>'58','d'=>'','v'=>'✓','m'=>'','txt'=>'CARROCERAIA, CHASIS Y REMACHES, ESCOTILLAS, CONTENEDORES DE PRESION, VALVULAS, MANGUERAS', 'val'=> $car?->carroceria_remaches],
+        ['nom'=>'58','d'=>'','v'=>'✓','m'=>'','txt'=>'LADOS, SOPORTE LATERALES', 'val'=> $carVal($car, 'grano_lados_soporte', 'laterales_soporte')],
+        ['nom'=>'58','d'=>'','v'=>'✓','m'=>'','txt'=>'PISO', 'val'=> $carVal($car, 'grano_piso', 'piso')],
+        ['nom'=>'58','d'=>'','v'=>'✓','m'=>'','txt'=>'CARROCERAIA, CHASIS Y REMACHES, ESCOTILLAS, CONTENEDORES DE PRESION, VALVULAS, MANGUERAS', 'val'=> $carVal($car, 'grano_carroceria_remaches', 'carroceria_remaches')],
     ]);
     $add($secciones, 'PLATAFORMAS PLANAS', [
-        ['nom'=>'59','d'=>'','v'=>'✓','m'=>'','txt'=>'PLATAFORMA', 'val'=> $car?->plataforma],
-        ['nom'=>'59','d'=>'','v'=>'✓','m'=>'','txt'=>'LATERALES ( DE CONTAR CON EL), ESTACA/AGUJEROS DE ESTACA, AMARRES', 'val'=> $car?->laterales_estaca],
+        ['nom'=>'59','d'=>'','v'=>'✓','m'=>'','txt'=>'PLATAFORMA', 'val'=> $carVal($car, 'plataforma_plana', 'plataforma')],
+        ['nom'=>'59','d'=>'','v'=>'✓','m'=>'','txt'=>'LATERALES ( DE CONTAR CON EL), ESTACA/AGUJEROS DE ESTACA, AMARRES', 'val'=> $carVal($car, 'plataforma_laterales_estacas', 'laterales_estaca')],
     ]);
     $add($secciones, 'CAJAS PARA GRAVA', [
-        ['nom'=>'60','d'=>'','v'=>'✓','m'=>'','txt'=>'LATERALES, SOPORTE, CORROSION', 'val'=> $car?->laterales],
-        ['nom'=>'60','d'=>'','v'=>'✓','m'=>'','txt'=>'PISO', 'val'=> $car?->piso],
-        ['nom'=>'60','d'=>'','v'=>'✓','m'=>'','txt'=>'PUERTAS DE TOLVA O DE VACIADO', 'val'=> $car?->puertas_tolva],
+        ['nom'=>'60','d'=>'','v'=>'✓','m'=>'','txt'=>'LATERALES, SOPORTE, CORROSION', 'val'=> $carVal($car, 'grava_laterales_soporte', 'laterales')],
+        ['nom'=>'60','d'=>'','v'=>'✓','m'=>'','txt'=>'PISO', 'val'=> $carVal($car, 'grava_piso', 'piso')],
+        ['nom'=>'60','d'=>'','v'=>'✓','m'=>'','txt'=>'PUERTAS DE TOLVA O DE VACIADO', 'val'=> $carVal($car, 'grava_puertas_tolva', 'puertas_tolva')],
     ]);
     $add($secciones, 'SUJECION DE CARGA', [
-        ['nom'=>'61','d'=>'','v'=>'✓','m'=>'','txt'=>'PUNTOS DE SUJECION, EQUIPO DE SUJECION', 'val'=> $car?->puntos_sujecion],
-        ['nom'=>'61','d'=>'','v'=>'✓','m'=>'','txt'=>'CONDICIONDEL VEHICULO O DE LA CARGA', 'val'=> $car?->condicion_carga],
+        ['nom'=>'61','d'=>'','v'=>'✓','m'=>'','txt'=>'PUNTOS DE SUJECION, EQUIPO DE SUJECION', 'val'=> $carVal($car, 'sujecion_puntos_equipo', 'puntos_sujecion')],
+        ['nom'=>'61','d'=>'','v'=>'✓','m'=>'','txt'=>'CONDICIONDEL VEHICULO O DE LA CARGA', 'val'=> $carVal($car, 'sujecion_condicion_carga', 'condicion_carga')],
     ]);
     $add($secciones, 'OTRO TIPO DE CARROCERIA', [
-        ['nom'=>'60','d'=>'','v'=>'✓','m'=>'','txt'=>'PISO', 'val'=> $car?->piso],
-        ['nom'=>'60','d'=>'','v'=>'✓','m'=>'','txt'=>'PUERTAS', 'val'=> $car?->puertas],
-        ['nom'=>'60','d'=>'','v'=>'✓','m'=>'','txt'=>'LATERALES', 'val'=> $car?->laterales],
-        ['nom'=>'60','d'=>'','v'=>'✓','m'=>'','txt'=>'SUJETADORES, MANGUERAS', 'val'=> $car?->sujetadores_mangueras],
+        ['nom'=>'60','d'=>'','v'=>'✓','m'=>'','txt'=>'PISO', 'val'=> $carVal($car, 'otro_piso', 'piso')],
+        ['nom'=>'60','d'=>'','v'=>'✓','m'=>'','txt'=>'PUERTAS', 'val'=> $carVal($car, 'otro_puertas', 'puertas')],
+        ['nom'=>'60','d'=>'','v'=>'✓','m'=>'','txt'=>'LATERALES', 'val'=> $carVal($car, 'otro_laterales', 'laterales')],
+        ['nom'=>'60','d'=>'','v'=>'✓','m'=>'','txt'=>'SUJETADORES, MANGUERAS', 'val'=> $carVal($car, 'otro_sujetadores_mangueras', 'sujetadores_mangueras')],
     ]);
 } elseif ($tipoFormulario === 'F20_DOLLY') {
     // Orden oficial F-20 REV.01 (webroot/camposTXT/F-20_DOLLY.txt / F-20.pdf).
