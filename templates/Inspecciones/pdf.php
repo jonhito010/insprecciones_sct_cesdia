@@ -11,7 +11,19 @@ $u = $inspeccion->unidades_inspeccion ?? ($inspeccion->unidad_inspeccion ?? null
 $t = $inspeccion->tecnico ?? null;
 
 $meses = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
-$fi = $inspeccion->fecha_inspeccion ?? null;
+// P3.3: preferir fecha_contrato de orden F-04 ligada; fallback a fecha_inspeccion.
+$fechaContrato = null;
+try {
+    $ordenF04 = \Cake\ORM\TableRegistry::getTableLocator()->get('OrdenesServicio')
+        ->find()
+        ->where(['inspeccion_id' => (int)$inspeccion->id])
+        ->orderByDesc('id')
+        ->first();
+    $fechaContrato = $ordenF04->fecha_contrato ?? null;
+} catch (\Throwable $e) {
+    $fechaContrato = null;
+}
+$fi = $fechaContrato ?? ($inspeccion->fecha_inspeccion ?? null);
 $fAnt = $inspeccion->verificacion_anterior ?? $inspeccion->fecha_inspeccion_ant ?? null;
 if ($fi) {
     $diaC = $fi->format('j');

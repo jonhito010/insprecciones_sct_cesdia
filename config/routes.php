@@ -68,6 +68,7 @@ return static function (RouteBuilder $routes): void {
         $builder->resources('Propietarios');
         $builder->resources('Vehiculos');
         $builder->resources('UnidadesInspeccion');
+        $builder->resources('OrdenesServicio');
 
         $builder->fallbacks(DashedRoute::class);
     });
