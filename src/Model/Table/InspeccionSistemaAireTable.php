@@ -1,4 +1,6 @@
 <?php
+declare(strict_types=1);
+
 namespace App\Model\Table;
 
 use App\Validation\InspeccionMexico;
@@ -23,7 +25,6 @@ class InspeccionSistemaAireTable extends Table
             'compresor_aire', 'gobernador', 'manometro', 'dispositivo_baja_presion',
             'caida_presion_cumple', 'tiempo_carga_cumple',
             'conexiones_aire_remolque', 'conexiones_elec_remolque',
-            'presion_cierre_con_disp', 'presion_cierre_sin_disp',
             'proteccion_camion', 'valvula_control_remolque',
         ] as $c) {
             $validator
@@ -39,6 +40,15 @@ class InspeccionSistemaAireTable extends Table
                 ->numeric($c, 'Debe ser un valor numérico.', function ($context) use ($c) {
                     return ($context['data'][$c] ?? '') !== '';
                 });
+        }
+
+        // FIX2 · XXXIX: mediciones en PSI (decimal), no enum CUMPLE.
+        foreach (['presion_cierre_con_disp', 'presion_cierre_sin_disp'] as $c) {
+            $validator
+                ->allowEmptyString($c)
+                ->decimal($c, null, 'Indique un valor numérico en PSI.')
+                ->greaterThanOrEqual($c, 0, 'La presión no puede ser negativa.')
+                ->lessThanOrEqual($c, 150, 'La presión no puede superar 150 PSI.');
         }
 
         return $validator;
