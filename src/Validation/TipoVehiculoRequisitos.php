@@ -252,6 +252,30 @@ final class TipoVehiculoRequisitos
         return $out;
     }
 
+    /**
+     * BUG-2 · Catálogo completo por prefijo de folio (M = todos motrices; A = todos arrastre).
+     * Usa código AB para autobús (opción O2/O3 pendiente de decisión del dueño).
+     *
+     * @return array<string, string>
+     */
+    public static function etiquetasSelectPorPrefijoFolio(?string $prefijo): array
+    {
+        $pref = strtoupper(trim((string)$prefijo));
+        $permitidos = self::codigosPermitidosFolioDictamen($pref) ?? [];
+        if ($permitidos === []) {
+            return self::etiquetasSelect();
+        }
+        $todas = self::etiquetasSelect();
+        $out = [];
+        foreach ($permitidos as $cod) {
+            if (isset($todas[$cod])) {
+                $out[$cod] = $todas[$cod];
+            }
+        }
+
+        return $out;
+    }
+
     /** @return list<string> */
     public static function codigos(): array
     {

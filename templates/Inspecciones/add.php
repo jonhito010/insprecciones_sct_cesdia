@@ -93,7 +93,12 @@ if ($folioRaw !== '' && preg_match('/^([AaMm])(.*)$/u', $folioRaw, $m)) {
 }
 $folioEsMotrizIni = $folioRaw !== '' && strtoupper($folioRaw[0]) === 'M';
 $mostrarOdometroIni = !empty($inspeccionTieneOdometro) && $folioEsMotrizIni;
-$tiposVehiculoOpts = TipoVehiculoRequisitos::etiquetasSelectPorFormulario($tipoFormulario);
+$folioEsperadoFormulario = TipoVehiculoRequisitos::folioEsperadoPorFormulario((string)$tipoFormulario);
+// BUG-2: en alta, catálogo completo según folio (M→T2,T3,C2,C3,AB; A→S2,S3,D1,D2).
+// En edición se mantiene el filtro del formulario actual para no mezclar checklists.
+$tiposVehiculoOpts = (!$esEdicion && $folioEsperadoFormulario !== null)
+    ? TipoVehiculoRequisitos::etiquetasSelectPorPrefijoFolio($folioEsperadoFormulario)
+    : TipoVehiculoRequisitos::etiquetasSelectPorFormulario($tipoFormulario);
 $tipoVehActual = $vehiculo ? (string)($vehiculo->tipo_vehiculo ?? '') : '';
 // Conserva el tipo guardado aunque no pertenezca a la lista filtrada (ediciones antiguas).
 if ($tipoVehActual !== '' && !isset($tiposVehiculoOpts[$tipoVehActual])) {
@@ -104,7 +109,10 @@ $tiposVehiculoPorFolioJson = [
     'M' => TipoVehiculoRequisitos::codigosConCombustible(),
     'A' => TipoVehiculoRequisitos::codigosArrastre(),
 ];
-$folioEsperadoFormulario = TipoVehiculoRequisitos::folioEsperadoPorFormulario((string)$tipoFormulario);
+$formularioPorTipoJson = [];
+foreach (array_keys(TipoVehiculoRequisitos::etiquetasSelect()) as $_codFv) {
+    $formularioPorTipoJson[$_codFv] = TipoVehiculoRequisitos::formularioPorTipoVehiculo((string)$_codFv);
+}
 if (!$esEdicion && $folioTipoIni === '' && $folioEsperadoFormulario !== null) {
     $folioTipoIni = $folioEsperadoFormulario;
 }
@@ -339,8 +347,12 @@ if (!$esEdicion && $folioTipoIni === '' && $folioEsperadoFormulario !== null) {
           <option value="">-- Tipo --</option>
           <?php foreach ($tiposVehiculoOpts as $codTipo => $etiqTipo) :
               $catTipo = TipoVehiculoRequisitos::categoriaCodigo((string)$codTipo);
+              $formTipoOpt = TipoVehiculoRequisitos::formularioPorTipoVehiculo((string)$codTipo);
               ?>
-          <option value="<?= h($codTipo) ?>" data-cesdia-clase="<?= h($catTipo ?? '') ?>"<?= $tipoVehActual === (string)$codTipo ? ' selected' : '' ?>><?= h($etiqTipo) ?></option>
+          <option value="<?= h($codTipo) ?>"
+            data-cesdia-clase="<?= h($catTipo ?? '') ?>"
+            data-cesdia-formulario="<?= h($formTipoOpt) ?>"
+            <?= $tipoVehActual === (string)$codTipo ? ' selected' : '' ?>><?= h($etiqTipo) ?></option>
           <?php endforeach; ?>
         </select>
         <p id="cesdia-tipo-vehiculo-hint" class="cesdia-tipo-vehiculo-hint" style="display:none;margin:0.35rem 0 0;font-size:12px;color:var(--gmuted)"></p>
@@ -1135,10 +1147,14 @@ echo $this->element($armador, [
 <script>
 (function () {
   var TIPOS_POR_FOLIO = <?= json_encode($tiposVehiculoPorFolioJson, JSON_HEX_TAG | JSON_HEX_APOS | JSON_UNESCAPED_UNICODE) ?>;
+  var FORM_POR_TIPO = <?= json_encode($formularioPorTipoJson, JSON_HEX_TAG | JSON_HEX_APOS | JSON_UNESCAPED_UNICODE) ?>;
   var FOLIO_ESPERADO = <?= json_encode($folioEsperadoFormulario, JSON_HEX_TAG | JSON_HEX_APOS | JSON_UNESCAPED_UNICODE) ?>;
+  var FORMULARIO_ACTUAL = <?= json_encode((string)$tipoFormulario, JSON_HEX_TAG | JSON_HEX_APOS | JSON_UNESCAPED_UNICODE) ?>;
+  var ES_EDICION = <?= $esEdicion ? 'true' : 'false' ?>;
+  var URL_ADD_TIPO = <?= json_encode($this->Url->build(['action' => 'add']), JSON_HEX_TAG | JSON_HEX_APOS | JSON_UNESCAPED_UNICODE) ?>;
   var HINTS_FOLIO = {
-    M: 'Dictamen motriz (M): solo vehículos con combustible compatibles con este formulario.',
-    A: 'Dictamen arrastre (A): solo vehículos de arrastre (D1, D2, S2, S3).'
+    M: 'Dictamen motriz (M): tipos T2, T3, C2, C3 y AB (autobús). Si elige un tipo de otro formulario, se abrirá ese formato.',
+    A: 'Dictamen arrastre (A): tipos S2, S3, D1 y D2. Si elige un tipo de otro formulario, se abrirá ese formato.'
   };
   var MSG_INCOMPATIBLE = {
     M: 'No puede usar dictamen A en Tractocamión/Camión/Autobús: no hay tipos de vehículo. Use M, o inicie una inspección Remolque/Dolly.',
@@ -1152,6 +1168,30 @@ echo $this->element($armador, [
     if (!selTipo) {
       return;
     }
+    // BUG-2: restaurar folio tras salto a otro formulario (C2/C3/AB desde F-17, etc.).
+    try {
+      var folioPend = sessionStorage.getItem('cesdia_folio_pendiente');
+      if (folioPend && folioFull) {
+        sessionStorage.removeItem('cesdia_folio_pendiente');
+        folioFull.value = folioPend;
+        if (typeof window.cesdiaMergeFolioDictamen === 'function') {
+          /* init del otro script ya pudo correr; forzar relectura */
+        }
+        if (folioTipo && /^[MmAa]/.test(folioPend)) {
+          folioTipo.value = folioPend.charAt(0).toUpperCase();
+        }
+        var restoEl = document.getElementById('cesdia-folio-resto');
+        if (restoEl && /^[MmAa]/.test(folioPend)) {
+          restoEl.value = folioPend.slice(1);
+        }
+        if (typeof window.cesdiaMergeFolioDictamen === 'function') {
+          window.cesdiaMergeFolioDictamen();
+        }
+        if (typeof window.cesdiaProgramarValidarFolio === 'function') {
+          window.cesdiaProgramarValidarFolio();
+        }
+      }
+    } catch (eRestore) { /* sessionStorage no disponible */ }
     function prefijoFolio() {
       var t = folioTipo ? (folioTipo.value || '').trim().toUpperCase() : '';
       if (t === 'M' || t === 'A') {
@@ -1241,6 +1281,44 @@ echo $this->element($armador, [
       }
     }
     window.cesdiaSyncTipoVehiculoPorFolio = syncTipoVehiculoPorFolio;
+    var tipoVehPrev = selTipo.value || '';
+    function alCambiarTipoVehiculo() {
+      var cod = (selTipo.value || '').trim().toUpperCase();
+      var formNecesario = cod && FORM_POR_TIPO[cod] ? String(FORM_POR_TIPO[cod]) : '';
+      if (formNecesario && formNecesario !== FORMULARIO_ACTUAL) {
+        if (ES_EDICION) {
+          window.alert(
+            'El tipo ' + cod + ' pertenece al formulario ' + formNecesario
+            + '. En edición no se puede cambiar a otro formato; cree una inspección nueva.'
+          );
+          selTipo.value = tipoVehPrev;
+          syncTipoVehiculoPorFolio();
+          return;
+        }
+        var folioKeep = folioFull ? String(folioFull.value || '').trim() : '';
+        var ok = window.confirm(
+          'El tipo ' + cod + ' se captura en ' + formNecesario
+          + '.\n\nSe abrirá ese formulario'
+          + (folioKeep ? ' conservando el folio ' + folioKeep : '')
+          + '. ¿Continuar?'
+        );
+        if (!ok) {
+          selTipo.value = tipoVehPrev;
+          syncTipoVehiculoPorFolio();
+          return;
+        }
+        try {
+          if (folioKeep) {
+            sessionStorage.setItem('cesdia_folio_pendiente', folioKeep);
+          }
+        } catch (eSs) { /* ignore */ }
+        window.location.href = URL_ADD_TIPO + (URL_ADD_TIPO.indexOf('?') >= 0 ? '&' : '?')
+          + 'tipo=' + encodeURIComponent(formNecesario);
+        return;
+      }
+      tipoVehPrev = selTipo.value || '';
+      syncTipoVehiculoPorFolio();
+    }
     if (folioTipo) {
       folioTipo.addEventListener('change', syncTipoVehiculoPorFolio);
     }
@@ -1248,7 +1326,7 @@ echo $this->element($armador, [
       folioFull.addEventListener('change', syncTipoVehiculoPorFolio);
     }
     if (selTipo) {
-      selTipo.addEventListener('change', syncTipoVehiculoPorFolio);
+      selTipo.addEventListener('change', alCambiarTipoVehiculo);
     }
     var formInsp = selTipo.closest('form');
     if (formInsp) {
