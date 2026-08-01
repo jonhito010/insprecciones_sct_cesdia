@@ -15,7 +15,12 @@ $chasis = $inspeccion->inspeccion_chasis ?? null;
 $aire = $inspeccion->inspeccion_sistema_aire ?? null;
 $esCamion = $tipoFormulario === 'F18_CAMION';
 $esDolly = $tipoFormulario === 'F20_DOLLY';
+$esRemolque = $tipoFormulario === 'F19_REMOLQUE';
+$esTracto = $tipoFormulario === 'F17_TRACTO';
+$esAutobus = $tipoFormulario === 'F21_AUTOBUS';
 $tieneElectricos = in_array($tipoFormulario, ['F17_TRACTO', 'F19_REMOLQUE'], true);
+// P3.2: bloque genérico emergencia/estacionamiento solo donde aplica (no F-17/F-19; F-18 usa NOM 22)
+$mostrarEmergEstacion = $esAutobus;
 ?>
 <div class="cesdia-card" style="margin-bottom:1.2rem;">
   <div class="card-header">
@@ -53,6 +58,7 @@ $tieneElectricos = in_array($tipoFormulario, ['F17_TRACTO', 'F19_REMOLQUE'], tru
       foreach ($camposFrenos as $c => $label):
       ?><div class="cesdia-form-group"><?= $this->Form->control("inspeccion_freno.$c", ['label' => ['text' => $label, 'class' => 'cesdia-label'], 'options' => $cumpleOpts, 'empty' => '--', 'class' => 'cesdia-select' . $df, 'value' => $freno && isset($freno->$c) ? $freno->$c : 'CUMPLE']) ?></div><?php endforeach; ?>
     </div>
+    <?php if (!$esRemolque) : ?>
     <div class="cesdia-section" style="margin-top:1rem;">
       <div class="sec-head"><span class="sec-head-title">Cámara de frenado</span></div>
       <div class="sec-body">
@@ -76,19 +82,40 @@ $tieneElectricos = in_array($tipoFormulario, ['F17_TRACTO', 'F19_REMOLQUE'], tru
         </div>
       </div>
     </div>
-    <?php if (!$esDolly) : ?>
+    <?php endif; ?>
+    <?php if ($esRemolque) : ?>
+    <!-- P3.1: mangueras NOM 34 en bloque frenos neumáticos del remolque -->
     <div class="cesdia-section" style="margin-top:1rem;">
-      <div class="sec-head"><span class="sec-head-title">Freno de emergencia y estacionamiento</span></div>
+      <div class="sec-head"><span class="sec-head-title">Frenos neumáticos — mangueras</span></div>
+      <div class="sec-body">
+        <div class="cesdia-grid-3">
+          <div class="cesdia-form-group"><?= $this->Form->control('inspeccion_chasis.mangueras_tuberia', ['label' => ['text' => 'MANGUERAS O TUBERIA (NOM 34)', 'class' => 'cesdia-label'], 'options' => $cumpleOpts, 'empty' => '--', 'class' => 'cesdia-select' . $df, 'value' => $chasis ? ($chasis->mangueras_tuberia ?? 'CUMPLE') : 'CUMPLE']) ?></div>
+        </div>
+      </div>
+    </div>
+    <?php endif; ?>
+    <?php if ($esAutobus) : ?>
+    <!-- P3.1: válvula control remolque NOM 39 en F-21 -->
+    <div class="cesdia-section" style="margin-top:1rem;">
+      <div class="sec-head"><span class="sec-head-title">Válvula de control de freno de remolque</span></div>
+      <div class="sec-body">
+        <div class="cesdia-grid-3">
+          <div class="cesdia-form-group"><?= $this->Form->control('inspeccion_sistema_aire.valvula_control_remolque', ['label' => ['text' => 'VÁLVULA MANUAL DE CONTROL DE FRENO DE REMOLQUE (NOM 39)', 'class' => 'cesdia-label'], 'options' => $cumpleOpts, 'empty' => '--', 'class' => 'cesdia-select' . $df, 'value' => $aire ? ($aire->valvula_control_remolque ?? 'CUMPLE') : 'CUMPLE']) ?></div>
+        </div>
+      </div>
+    </div>
+    <?php endif; ?>
+    <?php if ($mostrarEmergEstacion) : ?>
+    <div class="cesdia-section" style="margin-top:1rem;">
+      <div class="sec-head"><span class="sec-head-title">Freno de emergencia</span></div>
       <div class="sec-body">
         <div class="cesdia-grid-3">
           <div class="cesdia-form-group"><?= $this->Form->control('inspeccion_freno.freno_emergencia', ['label' => ['text' => 'Freno de emergencia', 'class' => 'cesdia-label'], 'options' => $cumpleOpts, 'empty' => '--', 'class' => 'cesdia-select' . $df, 'value' => $freno ? ($freno->freno_emergencia ?? 'CUMPLE') : 'CUMPLE']) ?></div>
-          <div class="cesdia-form-group"><?= $this->Form->control('inspeccion_freno.freno_estacionamiento', ['label' => ['text' => 'Freno de estacionamiento', 'class' => 'cesdia-label'], 'options' => $cumpleOpts, 'empty' => '--', 'class' => 'cesdia-select' . $df, 'value' => $freno ? ($freno->freno_estacionamiento ?? 'CUMPLE') : 'CUMPLE']) ?></div>
         </div>
       </div>
     </div>
     <?php endif; ?>
     <?php if ($tieneElectricos) : ?>
-    <!-- Frenos eléctricos — F-17 y F-19 -->
     <div>
       <div class="cesdia-section" style="margin-top:1rem;">
         <div class="sec-head"><span class="sec-head-title">Frenos eléctricos</span></div>
@@ -102,40 +129,55 @@ $tieneElectricos = in_array($tipoFormulario, ['F17_TRACTO', 'F19_REMOLQUE'], tru
     </div>
     <?php endif; ?>
     <?php if ($esCamion) : ?>
-    <!-- Frenos hidráulicos — F-18 Camión -->
-    <div>
-      <div class="cesdia-section" style="margin-top:1rem;">
-        <div class="sec-head"><span class="sec-head-title">Frenos hidráulicos (F-18)</span></div>
-        <div class="sec-body">
-          <div class="cesdia-grid-3">
-            <?php foreach ([
-              'hid_recorrido'            => 'RECORRIDO',
-              'hid_indicador_advertencia'=> 'INDICADOR DE ADVERTENCIA',
-              'hid_luz_indicadora'       => 'LUZ INDICADORA',
-              'hid_cables_acoplamiento'  => 'CABLES Y ACOPLAMIENTO',
-              'estac_balata'             => 'BALATA SI ES VISIBLE DESGASTE 3,2 mm REMACHADA, 1,6 mm ADHERIDA',
-              'hid_libera_hidraulico'    => 'FRENOS DE ESTACIONAMIENTO LIBERA HIDRÁULICAMENTE',
-              'hid_pedal'            => 'Pedal de freno',
-              'hid_liquido_condicion'=> 'CONDICION, CONTAMINADO',
-              'hid_cilindros'        => 'Cilindros maestros',
-              'hid_lineas_mangueras' => 'Líneas y mangueras',
-              'hid_deposito_liquido' => 'Depósito de líquido',
-              'hid_valvulas_unidirec'=> 'Válvulas unidireccionales',
-              'hid_abrazaderas'      => 'ABRAZADERAS',
-              'hid_booster'          => 'TANQUE (BOSTER), OPERACIÓN, CONDICION',
-              'hid_tambores'         => 'Tambores',
-              'hid_pastas_freno'     => 'Pastas de freno / balatas',
-              'hid_calipers'         => 'Calipers',
-              'hid_disco'            => 'Disco',
-              'hid_bomba_vacio'      => 'Bomba de vacío',
-              'hid_reserva_vacio'    => 'Reserva de vacío',
-            ] as $c => $l): ?>
-            <div class="cesdia-form-group"><?= $this->Form->control("inspeccion_freno.$c", ['label' => ['text' => $l, 'class' => 'cesdia-label'], 'options' => $cumpleOpts, 'empty' => '--', 'class' => 'cesdia-select' . $df, 'value' => $freno && isset($freno->$c) ? $freno->$c : 'N/A']) ?></div>
-            <?php endforeach; ?>
-          </div>
+    <?php
+      $seccionesHid = [
+        'FRENO DE ESTACIONAMIENTO (22)' => [
+          'hid_luz_indicadora' => 'LUZ INDICADORA',
+          'hid_cables_acoplamiento' => 'CABLES Y ACOPLAMIENTO',
+          'estac_balata' => 'BALATA SI ES VISIBLE DESGASTE 3,2 mm REMACHADA, 1,6 mm ADHERIDA',
+          'hid_libera_hidraulico' => 'FRENOS DE ESTACIONAMIENTO LIBERA HIDRÁULICAMENTE',
+          'freno_estacionamiento' => 'FRENO DE ESTACIONAMIENTO: FUNCION, APLICACIÓN, MECANISMO',
+        ],
+        'FRENOS HIDRAULICOS (26)' => [
+          'hid_recorrido' => 'RECORRIDO',
+          'hid_indicador_advertencia' => 'INDICADOR DE ADVERTENCIA',
+          'hid_deposito_liquido' => 'TANQUE / DEPÓSITO DE LÍQUIDO',
+          'hid_lineas_mangueras' => 'LÍNEAS Y MANGUERAS / BANDA',
+          'hid_pedal' => 'PEDAL DE FRENO',
+        ],
+        'FRENOS HIDRAULICOS ASISTIDOS (27/28)' => [
+          'hid_valvulas_unidirec' => 'VÁLVULAS UNIDIRECCIONALES',
+          'hid_abrazaderas' => 'ABRAZADERAS',
+          'hid_booster' => 'TANQUE (BOSTER), OPERACIÓN, CONDICION',
+        ],
+        'SISTEMA DE VACIO (29/30)' => [
+          'hid_reserva_vacio' => 'RESERVA DE VACIO, ALARMA O LUZ',
+          'hid_bomba_vacio' => 'BOMBA DE VACIO, DESEMPEÑO',
+        ],
+        'FRENOS HIDR. DE TAMBOR (31)' => [
+          'hid_liquido_condicion' => 'CONDICION, CONTAMINADO',
+          'hid_cilindros' => 'CILINDROS',
+          'hid_tambores' => 'TAMBORES',
+        ],
+        'FRENOS HIDR. DE DISCO (32)' => [
+          'hid_disco' => 'DISCO',
+          'hid_calipers' => 'CALIPERS',
+          'hid_pastas_freno' => 'PASTAS',
+        ],
+      ];
+    ?>
+    <?php foreach ($seccionesHid as $titulo => $campos) : ?>
+    <div class="cesdia-section" style="margin-top:1rem;">
+      <div class="sec-head"><span class="sec-head-title"><?= h($titulo) ?></span></div>
+      <div class="sec-body">
+        <div class="cesdia-grid-3">
+          <?php foreach ($campos as $c => $l) : ?>
+          <div class="cesdia-form-group"><?= $this->Form->control("inspeccion_freno.$c", ['label' => ['text' => $l, 'class' => 'cesdia-label'], 'options' => $cumpleOpts, 'empty' => '--', 'class' => 'cesdia-select' . $df, 'value' => $freno && isset($freno->$c) ? $freno->$c : 'N/A']) ?></div>
+          <?php endforeach; ?>
         </div>
       </div>
     </div>
+    <?php endforeach; ?>
     <?php endif; ?>
   </div>
 </div>

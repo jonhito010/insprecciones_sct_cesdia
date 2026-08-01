@@ -62,6 +62,8 @@ $lucesDelanteraCampos = $esAutobus ? [
     'luz_alta_baja'     => 'Luz alta, baja',
     'luz_diurna'        => 'Luz que ilumina durante el día (blanco/amarillo)',
     'luces_peligro'     => 'Luces de peligro 2 o 4 viendo hacia adelante',
+    // P3.1: renglón separado NOM 53 (también en F-17/F-18)
+    'luces_intermitentes' => 'Luces intermitentes / de peligro',
     'luz_niebla'        => 'Luz de niebla operadas con luz baja',
 ];
 $parabrisasCampos = $esAutobus ? [
