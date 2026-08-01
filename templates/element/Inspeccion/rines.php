@@ -1,7 +1,7 @@
 <?php
 /**
  * Tabla complementaria de rines (tuercas/birlos/maza/balero).
- * Filas según formato oficial (10/12/8), no según captura de llantas.
+ * Filas según formato oficial (10/12/8), una por llanta (numero_llanta).
  *
  * @var \App\View\AppView $this
  * @var \App\Model\Entity\Inspeccion $inspeccion
@@ -15,9 +15,18 @@ $filas = Nom068Formato::filasTablaComplementaria((string)($tipoFormulario ?? 'F1
 $rinesData = [];
 if (!empty($inspeccion->inspeccion_rines)) {
     foreach ($inspeccion->inspeccion_rines as $r) {
+        $num = (int)($r->numero_llanta ?? 0);
+        if ($num >= 1) {
+            $rinesData[$num] = $r;
+            continue;
+        }
+        // Fallback legacy: par_rines '7-8' → filas 7 y 8 (misma entidad hasta migrar).
         $par = (string)($r->par_rines ?? '');
-        if ($par !== '') {
-            $rinesData[$par] = $r;
+        if (preg_match('/^(\d{1,2})-(\d{1,2})$/', $par, $m)) {
+            $rinesData[(int)$m[1]] = $r;
+            $rinesData[(int)$m[2]] = $r;
+        } elseif (preg_match('/^\d{1,2}$/', $par)) {
+            $rinesData[(int)$par] = $r;
         }
     }
 }
@@ -34,16 +43,20 @@ if (!empty($inspeccion->inspeccion_rines)) {
       Tabla complementaria del PDF. Filas vacías se imprimen en blanco.
     </p>
     <?php for ($i = 1; $i <= $filas; $i++) :
-        $row = $rinesData[(string)$i] ?? null;
+        $row = $rinesData[$i] ?? null;
+        // Si el fallback legacy reutiliza la misma entidad en 2 llantas, no reenviar el mismo id.
+        $rowId = ($row && !empty($row->id) && (int)($row->numero_llanta ?? 0) === $i)
+            ? (int)$row->id
+            : null;
     ?>
     <div class="cesdia-section" style="margin-bottom:0.65rem;">
       <div class="sec-head"><span class="sec-head-title">Llanta #<?= $i ?></span></div>
       <div class="sec-body">
         <div class="cesdia-grid-4">
-          <?php if ($row && !empty($row->id)) : ?>
-            <?= $this->Form->hidden("inspeccion_rines." . ($i - 1) . ".id", ['value' => (int)$row->id]) ?>
+          <?php if ($rowId) : ?>
+            <?= $this->Form->hidden("inspeccion_rines." . ($i - 1) . ".id", ['value' => $rowId]) ?>
           <?php endif; ?>
-          <?= $this->Form->hidden("inspeccion_rines." . ($i - 1) . ".par_rines", ['value' => (string)$i]) ?>
+          <?= $this->Form->hidden("inspeccion_rines." . ($i - 1) . ".numero_llanta", ['value' => (string)$i]) ?>
           <div class="cesdia-form-group">
             <?= $this->Form->control("inspeccion_rines." . ($i - 1) . ".num_sujetadores", [
               'label' => ['text' => 'Tuercas/birlos #', 'class' => 'cesdia-label'],

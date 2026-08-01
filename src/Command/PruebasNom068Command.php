@@ -808,53 +808,45 @@ class PruebasNom068Command extends Command
             }
         }
 
-        // Rines: UI (P2.5) envía par_rines="1".."N" pero la columna es enum de pares.
+        // Rines por llanta (FX1: requiere columna numero_llanta).
         $filas = Nom068Formato::filasTablaComplementaria($tipoForm);
         $n++;
-        $colPar = $this->inspecciones->InspeccionRines->getSchema()->getColumnType('par_rines');
-        $sqlPar = (string)$this->inspecciones->getConnection()->execute(
-            'SHOW COLUMNS FROM inspeccion_rines LIKE :c',
-            ['c' => 'par_rines']
-        )->fetch('assoc')['Type'] ?? '';
-        if (str_contains($sqlPar, "'1-2'") && !str_contains($sqlPar, "'1'")) {
-            $fails[] = "[{$marcaForm}] [COMUNES] rines UI (par_rines numérico 1..{$filas}) "
-                . 'incompatible con enum de pares en BD (' . $sqlPar . ')';
-        }
-        unset($colPar);
-
-        // Persistencia con valores de enum (pares) — camino que sí acepta la BD.
-        $pares = ['1-2', '3-4', '5-6', '7-8', '9-10', '11-12'];
-        $nPares = (int)ceil($filas / 2);
-        $rinesPares = [];
-        for ($i = 0; $i < $nPares; $i++) {
-            $rinesPares[] = [
-                'par_rines' => $pares[$i],
-                'num_sujetadores' => 8,
-                'sujetadores_cumple' => 'CUMPLE',
-                'maza_cumple' => 'CUMPLE',
-                'balero_cumple' => $i === 0 ? 'NO CUMPLE' : 'CUMPLE',
-            ];
-        }
-        try {
-            $entity = $this->releer($id, $tipoForm);
-            $entity = $this->inspecciones->patchEntity($entity, [
-                'inspeccion_rines' => $rinesPares,
-            ], ['associated' => ['InspeccionRines']]);
-            if (!$this->inspecciones->save($entity, ['associated' => ['InspeccionRines']])) {
-                $fails[] = "[{$marcaForm}] [COMUNES] rines pares no se guardaron";
-            } else {
-                $re = $this->releer($id, $tipoForm);
-                $porPar = [];
-                foreach ($re->inspeccion_rines ?? [] as $row) {
-                    $porPar[(string)$row->par_rines] = $row;
-                }
-                $n++;
-                if ((string)($porPar['1-2']->balero_cumple ?? '') !== 'NO CUMPLE') {
-                    $fails[] = "[{$marcaForm}] [COMUNES] rines (pares) balero 1-2 no persistió";
-                }
+        $tieneNumeroLlanta = $this->inspecciones->InspeccionRines->getSchema()->hasColumn('numero_llanta');
+        if (!$tieneNumeroLlanta) {
+            $fails[] = "[{$marcaForm}] [COMUNES] rines: falta aplicar alter_inspeccion_rines_numero_llanta_fx1.sql";
+        } else {
+            $rines = [];
+            for ($i = 1; $i <= $filas; $i++) {
+                $rines[] = [
+                    'numero_llanta' => $i,
+                    'num_sujetadores' => 8,
+                    'sujetadores_cumple' => 'CUMPLE',
+                    'maza_cumple' => 'CUMPLE',
+                    'balero_cumple' => $i === 7 ? 'NO CUMPLE' : 'CUMPLE',
+                ];
             }
-        } catch (Throwable $e) {
-            $fails[] = "[{$marcaForm}] [COMUNES] rines pares: " . $this->acortarErrorSql($e->getMessage());
+            try {
+                $entity = $this->releer($id, $tipoForm);
+                $entity = $this->inspecciones->patchEntity($entity, [
+                    'inspeccion_rines' => $rines,
+                ], ['associated' => ['InspeccionRines']]);
+                if (!$this->inspecciones->save($entity, ['associated' => ['InspeccionRines']])) {
+                    $fails[] = "[{$marcaForm}] [COMUNES] rines por llanta no se guardaron: "
+                        . json_encode($entity->getErrors());
+                } else {
+                    $re = $this->releer($id, $tipoForm);
+                    $porNum = [];
+                    foreach ($re->inspeccion_rines ?? [] as $row) {
+                        $porNum[(int)$row->numero_llanta] = $row;
+                    }
+                    $n++;
+                    if (!isset($porNum[7]) || (string)($porNum[7]->balero_cumple ?? '') !== 'NO CUMPLE') {
+                        $fails[] = "[{$marcaForm}] [COMUNES] rines llanta 7 no persistió";
+                    }
+                }
+            } catch (Throwable $e) {
+                $fails[] = "[{$marcaForm}] [COMUNES] rines: " . $this->acortarErrorSql($e->getMessage());
+            }
         }
 
         // Cancelar sin tocar dictamen

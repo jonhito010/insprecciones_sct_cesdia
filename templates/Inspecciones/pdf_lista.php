@@ -725,6 +725,19 @@ if ($tipoFormulario === 'F19_REMOLQUE') {
             ['nom'=>'63','d'=>'','v'=>'✓','m'=>'','txt'=>'FRENOS ELÉCTRICOS (RETARDADORES)', 'val'=> $fr?->frenos_electricos_ret],
         ]);
         $add($secciones, 'SISTEMA DE ACOPLAMIENTO', $secAcoplamiento);
+        $psiCon = $sa?->presion_cierre_con_disp;
+        $psiSin = $sa?->presion_cierre_sin_disp;
+        $fmtPsi = static function ($v): string {
+            if ($v === null || $v === '') {
+                return '—';
+            }
+
+            return rtrim(rtrim((string)$v, '0'), '.') . ' PSI';
+        };
+        $add($secciones, 'MEDICIONES XXXIX (PSI)', [
+            ['nom'=>'39','d'=>'','v'=>'','m'=>'✓','txt'=>'PRESIÓN DE CIERRE CON DISPOSITIVO: ' . $fmtPsi($psiCon), 'val'=> null],
+            ['nom'=>'39','d'=>'','v'=>'','m'=>'✓','txt'=>'PRESIÓN DE CIERRE SIN DISPOSITIVO: ' . $fmtPsi($psiSin), 'val'=> null],
+        ]);
     }
     $add($secciones, 'CABINA', $secCabinaPdf);
 }
@@ -737,12 +750,21 @@ foreach ($numerosPie as $n) {
     $int = $llBy[$n]['INTERNA'] ?? null;
     $llantaMap[$n] = $ext ?? $int;
 }
-$rinesByPar = [];
+$rinesByLlanta = [];
 if (!empty($inspeccion->inspeccion_rines)) {
     foreach ($inspeccion->inspeccion_rines as $rinRow) {
+        $num = (int)($rinRow->numero_llanta ?? 0);
+        if ($num >= 1) {
+            $rinesByLlanta[$num] = $rinRow;
+            continue;
+        }
+        // Fallback legacy par_rines 'N-M' → ambas llantas comparten valores hasta migrar FX1.
         $par = (string)($rinRow->par_rines ?? '');
-        if ($par !== '') {
-            $rinesByPar[$par] = $rinRow;
+        if (preg_match('/^(\d{1,2})-(\d{1,2})$/', $par, $m)) {
+            $rinesByLlanta[(int)$m[1]] = $rinRow;
+            $rinesByLlanta[(int)$m[2]] = $rinRow;
+        } elseif (preg_match('/^\d{1,2}$/', $par)) {
+            $rinesByLlanta[(int)$par] = $rinRow;
         }
     }
 }
@@ -1117,7 +1139,7 @@ $pdfSymLl = static function (?string $vx) use ($mk): string {
         </thead>
         <tbody>
           <?php foreach ($numerosPie as $n):
-            $rin = $rinesByPar[(string)$n] ?? $rinesByPar[$n] ?? null;
+            $rin = $rinesByLlanta[$n] ?? null;
             $maza = strtoupper((string)($rin->maza_cumple ?? ''));
           ?>
           <tr>

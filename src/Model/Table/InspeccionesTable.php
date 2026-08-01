@@ -80,6 +80,10 @@ class InspeccionesTable extends Table
             'dependent'  => true,
             'saveStrategy' => 'replace',
         ]);
+        // Solo tras aplicar alter FX1 (numero_llanta).
+        if ($this->InspeccionRines->getSchema()->hasColumn('numero_llanta')) {
+            $this->getAssociation('InspeccionRines')->setSort(['InspeccionRines.numero_llanta' => 'ASC']);
+        }
         $this->hasMany('InspeccionObservaciones', [
             'foreignKey' => 'inspeccion_id',
             'dependent'  => true,
