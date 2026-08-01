@@ -53,16 +53,17 @@ $niv = $v && !empty($v->niv) ? h($v->niv) : '«NÚMERO_DE_SERIE_O_NIV»';
 $tipoVeh = $v && !empty($v->tipo_vehiculo) ? h($v->tipo_vehiculo) : '______________________________';
 $folio = !empty($inspeccion->folio_dictamen) ? h($inspeccion->folio_dictamen) : '—';
 $tecnico = $t && !empty($t->nombre) ? h($t->nombre) : '________________';
+$equipoInspeccion = $t && !empty($t->numero_equipo) ? h((string)$t->numero_equipo) : '________________';
 
-// Número de aprobación de la unidad (columna puede ser numero_aprobacion o aprobacion)
-$noAprobUnidad = '';
+// INC-4: acreditación y aprobación son campos distintos (no cruzar).
+$noAcreditacion = '';
+$noAprobacion = '';
 if ($u) {
-    $noAprobUnidad = trim((string)($u->numero_aprobacion ?? $u->aprobacion ?? ''));
+    $noAcreditacion = trim((string)($u->numero_acreditacion ?? ''));
+    $noAprobacion = trim((string)($u->numero_aprobacion ?? $u->aprobacion ?? ''));
 }
-// Texto legal de plantilla si no hay dato en catálogo
-$acreditacion = $noAprobUnidad !== ''
-    ? h($noAprobUnidad)
-    : 'UVSCTAT 476Y APROBACIÓN UI/SICT/CFM/25/483';
+$acreditacionTxt = $noAcreditacion !== '' ? h($noAcreditacion) : '________________';
+$aprobacionTxt = $noAprobacion !== '' ? h($noAprobacion) : '________________';
 $nombreUv = $u && !empty($u->nombre) ? h($u->nombre) : 'CESDIA';
 ?>
 <!DOCTYPE html>
@@ -70,11 +71,11 @@ $nombreUv = $u && !empty($u->nombre) ? h($u->nombre) : 'CESDIA';
 <head>
   <meta charset="utf-8"/>
   <style>
-    /* Carta vertical: tipografía legible (puede usar más de una hoja si el texto es largo) */
+    /* Carta horizontal (landscape) — formato oficial F-04 */
     @page {
       /* Margen inferior para la banda del pie fijo (Dompdf) */
-      margin: 10mm 12mm 17mm 12mm;
-      size: letter portrait;
+      margin: 8mm 10mm 14mm 10mm;
+      size: letter landscape;
     }
 
     * { box-sizing: border-box; }
@@ -388,7 +389,8 @@ $nombreUv = $u && !empty($u->nombre) ? h($u->nombre) : 'CESDIA';
 
 <div class="pie-pagina">
   Documento generado electrónicamente &nbsp;·&nbsp; Inspecciones SCT / CESDIA &nbsp;·&nbsp; <?= h($fechaLarga) ?>
-  <br/>NOM-068-SCT-2-2014 &nbsp;·&nbsp; Acreditación: <?= $acreditacion ?>
+  <br/>NOM-068-SCT-2-2014 &nbsp;·&nbsp; Acreditación: <?= $acreditacionTxt ?>
+  &nbsp;·&nbsp; Aprobación: <?= $aprobacionTxt ?>
 </div>
 
 <div class="strip-top"></div>
@@ -416,8 +418,9 @@ $nombreUv = $u && !empty($u->nombre) ? h($u->nombre) : 'CESDIA';
   EL PRESENTE CONTRATO SE CELEBRA A LOS <strong><?= h($diaC) ?></strong> DÍAS DEL MES DE <strong><?= h(strtoupper($mesC)) ?></strong>
   DEL AÑO <strong><?= h($anioC) ?></strong>, ENTRE <strong>(EL SOLICITANTE)</strong> <?= $nombreSol ?>
   Y <strong>LA UNIDAD DE INSPECCIÓN (PRESTADOR DE SERVICIO) CESDIA</strong>, CON DOMICILIO EN PARCELA RUSTICA NÚMERO TRES DEL EJIDO DE SAN FRANCISCO KOBEN, CAMPECHE.
-  CON NÚMERO DE ACREDITACIÓN: <strong><?= $acreditacion ?></strong>.
-  EQUIPO CON QUE SE INSPECCIONA: <strong><?= $niv ?></strong>.
+  CON NÚMERO DE ACREDITACIÓN: <strong><?= $acreditacionTxt ?></strong>
+  Y APROBACIÓN: <strong><?= $aprobacionTxt ?></strong>.
+  EQUIPO CON QUE SE INSPECCIONA: <strong><?= $equipoInspeccion ?></strong>.
 </p>
 
 <div class="ref-mini">
@@ -506,7 +509,7 @@ $nombreUv = $u && !empty($u->nombre) ? h($u->nombre) : 'CESDIA';
       <?php endif; ?>
       <div class="firma-line"></div>
       <div class="firma-txt">Firma del prestador de servicio</div>
-      <div class="firma-subtxt"><?= $tecnico ?> &nbsp;·&nbsp; UV: <?= $nombreUv ?></div>
+      <div class="firma-subtxt"><?= $tecnico ?> &nbsp;·&nbsp; Equipo: <?= $equipoInspeccion ?> &nbsp;·&nbsp; UV: <?= $nombreUv ?></div>
     </td>
   </tr>
 </table>
