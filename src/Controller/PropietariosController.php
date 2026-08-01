@@ -52,13 +52,37 @@ class PropietariosController extends AppController
         return null;
     }
 
-    public function edit(int $id): ?Response
+    public function view(int $id): void
     {
-        $this->Flash->error('La edición de propietarios no está disponible.');
-
-        return $this->redirect(['action' => 'index']);
+        $tabla = $this->fetchTable('Propietarios');
+        $propietario = $tabla->get($id);
+        $this->_setFlagsContacto($tabla);
+        $this->set(compact('propietario'));
     }
 
+    public function edit(int $id): ?Response
+    {
+        $tabla = $this->fetchTable('Propietarios');
+        $propietario = $tabla->get($id);
+        if ($this->request->is(['post', 'put', 'patch'])) {
+            $propietario = $tabla->patchEntity($propietario, $this->request->getData());
+            if ($tabla->save($propietario)) {
+                $this->Flash->success('Propietario actualizado.');
+
+                return $this->redirect(['action' => 'index']);
+            }
+            $this->_flashErroresEntidad($propietario, 'No se pudo actualizar el propietario.');
+        }
+        $this->_setFlagsContacto($tabla);
+        $estadosMexico = is_readable(CONFIG . 'mexico_estados.php') ? require CONFIG . 'mexico_estados.php' : [];
+        $this->set(compact('propietario', 'estadosMexico'));
+
+        return null;
+    }
+
+    /**
+     * Sin soft-delete de propietarios en política actual: no se ofrece Eliminar en UI.
+     */
     public function delete(int $id): Response
     {
         $this->Flash->error('La eliminación de propietarios no está disponible.');
