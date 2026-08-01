@@ -172,6 +172,23 @@ if (!$esEdicion && $folioTipoIni === '' && $folioEsperadoFormulario !== null) {
           <input type="text" id="cesdia-folio-resto" name="cesdia_folio_resto_ui" class="cesdia-input<?= $df ?>" style="flex:1;min-width:0;" placeholder="Ej. 0000001" value="<?= h($folioRestoIni) ?>" maxlength="39" autocomplete="off" />
         </div>
         <?= $this->Form->hidden('folio_dictamen', ['id' => 'cesdia-folio-dictamen-full', 'value' => $folioRaw !== '' ? $folioRaw : (($folioTipoIni !== '' ? $folioTipoIni : '') . $folioRestoIni)]) ?>
+        <?php
+          $ultM = !empty($ultimosFolios['M']) ? (string)$ultimosFolios['M'] : '—';
+          $ultA = !empty($ultimosFolios['A']) ? (string)$ultimosFolios['A'] : '—';
+        ?>
+        <p id="cesdia-folio-ref" style="margin:0.35rem 0 0;font-size:11px;color:var(--gmuted);">
+          Referencia (no autollenado): Último M: <strong><?= h($ultM) ?></strong> · Último A: <strong><?= h($ultA) ?></strong>
+        </p>
+        <p id="cesdia-folio-estado" role="status" aria-live="polite" style="margin:0.35rem 0 0;font-size:12px;display:none;"></p>
+        <?php
+          $errFolio = $inspeccion->getError('folio_dictamen');
+          if (!empty($errFolio)) :
+              $msgFolio = is_array($errFolio) ? implode(' ', $errFolio) : (string)$errFolio;
+        ?>
+        <p class="cesdia-alert cesdia-alert-danger" style="margin:0.4rem 0 0;padding:6px 8px;font-size:12px;">
+          <?= h($msgFolio) ?>
+        </p>
+        <?php endif; ?>
         <p id="cesdia-folio-tipo-hint" class="cesdia-tipo-vehiculo-hint" style="margin:0.35rem 0 0;font-size:12px;color:var(--gmuted)">
           <?php if ($folioEsperadoUi === 'M') : ?>
             Este formulario (Tractocamión/Camión/Autobús) solo admite dictamen <strong>M</strong>. El tipo <strong>A</strong> no aplica: no hay tipos de vehículo en Tractocamión para arrastre.
@@ -272,6 +289,18 @@ if (!$esEdicion && $folioTipoIni === '' && $folioEsperadoFormulario !== null) {
           'id' => 'cesdia-tecnico-id',
         ]) ?>
         <?php endif; ?>
+      </div>
+      <div class="cesdia-form-group">
+        <?= $this->Form->control('tecnico_numero_equipo', [
+          'label' => ['text' => 'Equipo con que se inspecciona', 'class' => 'cesdia-label'],
+          'type' => 'text',
+          'class' => 'cesdia-input',
+          'maxlength' => 25,
+          'value' => $tecnicoNumeroEquipo ?? '',
+          'required' => true,
+          'placeholder' => 'Número de equipo del operador',
+        ]) ?>
+        <p style="font-size:11px;color:var(--gmuted);margin:4px 0 0;">Se imprime en F-04 y en el encabezado de la lista; debe coincidir con la firma del prestador.</p>
       </div>
       <div class="cesdia-form-group">
         <?= $this->Form->control('vehiculo_presentado', [
@@ -612,15 +641,30 @@ echo $this->element($armador, [
       return null;
     }
 
+    window.cesdiaGuardarBloqueos = window.cesdiaGuardarBloqueos || { horario: false, folio: false };
+    function actualizarBtnGuardar() {
+      var b = window.cesdiaGuardarBloqueos;
+      var bloqueado = !!(b.horario || b.folio);
+      if (!btnGuardar) {
+        return;
+      }
+      btnGuardar.disabled = bloqueado;
+      if (b.folio) {
+        btnGuardar.title = 'Folio duplicado: corrija el número de dictamen';
+      } else if (b.horario) {
+        btnGuardar.title = 'Horario no disponible para este técnico';
+      } else {
+        btnGuardar.title = '';
+      }
+    }
+    window.cesdiaActualizarBtnGuardar = actualizarBtnGuardar;
     function marcarCampos(bloqueado) {
       [inpIni, inpFin].forEach(function (el) {
         el.classList.toggle('cesdia-input--bloqueado', bloqueado);
         el.setAttribute('aria-invalid', bloqueado ? 'true' : 'false');
       });
-      if (btnGuardar) {
-        btnGuardar.disabled = bloqueado;
-        btnGuardar.title = bloqueado ? 'Horario no disponible para este técnico' : '';
-      }
+      window.cesdiaGuardarBloqueos.horario = !!bloqueado;
+      actualizarBtnGuardar();
     }
 
     function evaluarCandado() {
@@ -970,6 +1014,97 @@ echo $this->element($armador, [
     }
     initFolioDesdeOculto();
     mergeFolioDictamen();
+
+    /* INC-8 · Validación folio en tiempo real (debounce 400 ms) */
+    var urlValidarFolio = <?= json_encode($this->Url->build('/inspecciones/validar-folio'), JSON_HEX_TAG | JSON_HEX_APOS | JSON_UNESCAPED_UNICODE) ?>;
+    var excluirFolioId = <?= $esEdicion ? (int)$inspeccion->id : 0 ?>;
+    var estadoFolio = document.getElementById('cesdia-folio-estado');
+    var folioTimer = null;
+    window.cesdiaGuardarBloqueos = window.cesdiaGuardarBloqueos || { horario: false, folio: false };
+
+    function setFolioUi(ok, msg) {
+      resto.classList.toggle('cesdia-input--bloqueado', !ok && !!msg);
+      tipo.classList.toggle('cesdia-input--bloqueado', !ok && !!msg);
+      resto.setAttribute('aria-invalid', (!ok && !!msg) ? 'true' : 'false');
+      if (!estadoFolio) {
+        return;
+      }
+      if (!msg) {
+        estadoFolio.style.display = 'none';
+        estadoFolio.textContent = '';
+        return;
+      }
+      estadoFolio.style.display = '';
+      estadoFolio.textContent = msg;
+      estadoFolio.style.color = ok ? '#1A6B35' : '#b30000';
+      estadoFolio.style.fontWeight = ok ? '500' : '700';
+    }
+
+    function validarFolioAhora() {
+      mergeFolioDictamen();
+      var folio = (h.value || '').trim().toUpperCase();
+      if (folio.length < 2) {
+        window.cesdiaGuardarBloqueos.folio = false;
+        setFolioUi(true, '');
+        if (typeof window.cesdiaActualizarBtnGuardar === 'function') {
+          window.cesdiaActualizarBtnGuardar();
+        }
+        return;
+      }
+      var q = urlValidarFolio + '?folio=' + encodeURIComponent(folio);
+      if (excluirFolioId > 0) {
+        q += '&excluir=' + encodeURIComponent(String(excluirFolioId));
+      }
+      fetch(q, { credentials: 'same-origin', headers: { 'Accept': 'application/json' } })
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+          if (data && data.disponible === false && data.inspeccion) {
+            var ins = data.inspeccion;
+            var tec = ins.tecnico ? (' (Técnico: ' + ins.tecnico + ')') : '';
+            var msg = '⚠ El folio ' + (ins.folio || folio) + ' ya existe — Inspección #' + ins.id
+              + (ins.fecha ? (' del ' + ins.fecha) : '') + tec;
+            window.cesdiaGuardarBloqueos.folio = true;
+            setFolioUi(false, msg);
+          } else {
+            window.cesdiaGuardarBloqueos.folio = false;
+            setFolioUi(true, 'Folio disponible');
+          }
+          if (typeof window.cesdiaActualizarBtnGuardar === 'function') {
+            window.cesdiaActualizarBtnGuardar();
+          }
+        })
+        .catch(function () {
+          /* No bloquear por fallo de red; el servidor valida al guardar. */
+          window.cesdiaGuardarBloqueos.folio = false;
+          setFolioUi(true, '');
+          if (typeof window.cesdiaActualizarBtnGuardar === 'function') {
+            window.cesdiaActualizarBtnGuardar();
+          }
+        });
+    }
+
+    function programarValidarFolio() {
+      if (folioTimer) {
+        clearTimeout(folioTimer);
+      }
+      folioTimer = setTimeout(validarFolioAhora, 400);
+    }
+
+    tipo.addEventListener('change', programarValidarFolio);
+    resto.addEventListener('input', programarValidarFolio);
+    resto.addEventListener('change', programarValidarFolio);
+    if (fFolio) {
+      fFolio.addEventListener('submit', function (ev) {
+        mergeFolioDictamen();
+        if (window.cesdiaGuardarBloqueos && window.cesdiaGuardarBloqueos.folio) {
+          ev.preventDefault();
+          alert('El folio ya existe. Corrija el número de dictamen antes de guardar.');
+        }
+      });
+    }
+    if ((h.value || '').trim().length >= 2) {
+      programarValidarFolio();
+    }
   });
 })();
 </script>

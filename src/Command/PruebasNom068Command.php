@@ -151,6 +151,10 @@ class PruebasNom068Command extends Command
                 $this->correrT7();
             }
 
+            if ($soloKey === null) {
+                $this->correrT9FolioUnico();
+            }
+
             if ($conPdf) {
                 $this->correrT8();
             }
@@ -871,6 +875,53 @@ class PruebasNom068Command extends Command
         }
 
         unset($tipoVeh); // tipado de firma / futuro uso
+    }
+
+    /**
+     * INC-8 · Guardar con folio ya existente debe fallar (capa servidor).
+     */
+    private function correrT9FolioUnico(): void
+    {
+        $fails = [];
+        $n = 0;
+
+        try {
+            $primera = $this->crearInspeccion('F19_REMOLQUE', 'S3', []);
+            $folio = (string)$primera->folio_dictamen;
+            $n++;
+            try {
+                $this->crearInspeccion('F19_REMOLQUE', 'S3', [
+                    'folio_dictamen' => $folio,
+                ]);
+                $fails[] = '[COMUNES] [FOLIO] se permitió guardar folio duplicado: ' . $folio;
+            } catch (Throwable $e) {
+                $msg = $e->getMessage();
+                $n++;
+                if (
+                    stripos($msg, 'ya existe') === false
+                    && stripos($msg, 'folioDictamenUnico') === false
+                    && stripos($msg, 'folio_dictamen') === false
+                ) {
+                    $fails[] = '[COMUNES] [FOLIO] rechazo de duplicado no menciona folio: ' . $this->acortarErrorSql($msg);
+                }
+            }
+
+            // Edición de la misma inspección con su folio debe permitirse.
+            $entity = $this->inspecciones->get((int)$primera->id);
+            $entity = $this->inspecciones->patchEntity($entity, [
+                'folio_dictamen' => $folio,
+                'observaciones' => (string)($entity->observaciones ?? '') . ' re-save ok',
+            ]);
+            $n++;
+            if (!$this->inspecciones->save($entity)) {
+                $fails[] = '[COMUNES] [FOLIO] edición con el mismo folio se rechazó incorrectamente: '
+                    . json_encode($entity->getErrors(), JSON_UNESCAPED_UNICODE);
+            }
+        } catch (Throwable $e) {
+            $fails[] = '[COMUNES] [FOLIO] excepción en T9: ' . $e->getMessage();
+        }
+
+        $this->registrar('T9', 'Folio único', $fails, $n);
     }
 
     private function correrT7(): void

@@ -27,6 +27,11 @@ return static function (RouteBuilder $routes): void {
             'action' => 'horariosOcupadosTecnico',
         ]);
 
+        $builder->connect('/inspecciones/validar-folio', [
+            'controller' => 'Inspecciones',
+            'action' => 'validarFolio',
+        ]);
+
         // Plantilla / PDF motriz: /inspecciones/html-motriz/{id} (no /inspecciones/{id}/html-motriz)
         $builder->connect('/inspecciones/html-motriz/{id}', [
             'controller' => 'Inspecciones',

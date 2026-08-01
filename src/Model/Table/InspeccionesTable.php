@@ -337,6 +337,37 @@ class InspeccionesTable extends Table
             ]
         );
 
+        // INC-8: folio único (incluye CANCELADA — el número no se reutiliza).
+        $rules->add(
+            function (EntityInterface $entity) {
+                $folio = strtoupper(trim((string)($entity->get('folio_dictamen') ?? '')));
+                if ($folio === '') {
+                    return true;
+                }
+                $excluir = $entity->isNew() ? null : (int)$entity->get('id');
+                $otra = $this->buscarPorFolioDictamen($folio, $excluir);
+                if ($otra === null) {
+                    return true;
+                }
+                $fecha = $otra->get('fecha_inspeccion');
+                $fechaTxt = $fecha instanceof \DateTimeInterface
+                    ? $fecha->format('d/m/Y')
+                    : (string)($fecha ?? '—');
+                $entity->setError('folio_dictamen', [
+                    sprintf(
+                        'El folio %s ya existe (inspección #%d del %s).',
+                        $folio,
+                        (int)$otra->get('id'),
+                        $fechaTxt
+                    ),
+                ]);
+
+                return false;
+            },
+            'folioDictamenUnico',
+            ['errorField' => 'folio_dictamen']
+        );
+
         $rules->add(
             function (EntityInterface $entity) {
                 return TipoVehiculoRequisitos::validarFormularioContraFolioDictamen(
@@ -585,7 +616,55 @@ class InspeccionesTable extends Table
             $query->where(['Inspecciones.tecnico_id' => $tecnicoId]);
         }
 
+        // INC-3: ocultar canceladas por defecto (filtro visible queda para fase Historial).
+        if (empty($filtros['mostrar_canceladas']) && $this->getSchema()->hasColumn('estatus_registro')) {
+            $query->where(['Inspecciones.estatus_registro !=' => 'CANCELADA']);
+        }
+
         return $query->orderByDesc('Inspecciones.fecha_inspeccion');
+    }
+
+    /**
+     * INC-8 · Busca inspección con el mismo folio (cualquier estatus).
+     */
+    public function buscarPorFolioDictamen(string $folio, ?int $excluirId = null): ?EntityInterface
+    {
+        $folio = strtoupper(trim($folio));
+        if ($folio === '') {
+            return null;
+        }
+        $q = $this->find()
+            ->contain(['Tecnicos'])
+            ->where(['Inspecciones.folio_dictamen' => $folio])
+            ->orderByAsc('Inspecciones.id');
+        if ($excluirId !== null && $excluirId > 0) {
+            $q->where(['Inspecciones.id !=' => $excluirId]);
+        }
+
+        return $q->first();
+    }
+
+    /**
+     * Último folio capturado por prefijo (M o A), para referencia en el formulario.
+     *
+     * @return array{M: ?string, A: ?string}
+     */
+    public function ultimosFoliosPorPrefijo(): array
+    {
+        $out = ['M' => null, 'A' => null];
+        foreach (['M', 'A'] as $pref) {
+            $row = $this->find()
+                ->select(['folio_dictamen'])
+                ->where(['Inspecciones.folio_dictamen LIKE' => $pref . '%'])
+                ->orderByDesc('Inspecciones.id')
+                ->enableHydration(false)
+                ->first();
+            if ($row && !empty($row['folio_dictamen'])) {
+                $out[$pref] = (string)$row['folio_dictamen'];
+            }
+        }
+
+        return $out;
     }
 
     // Estadísticas para el dashboard

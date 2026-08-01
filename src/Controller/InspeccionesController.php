@@ -141,11 +141,13 @@ class InspeccionesController extends AppController
             $docTf = $this->request->getUploadedFile('doc_tarjeta_factura');
 
             $data = $this->request->getData();
+            $numeroEquipoPost = (string)($data['tecnico_numero_equipo'] ?? '');
             unset(
                 $data['foto_vehiculo_1'],
                 $data['foto_vehiculo_2'],
                 $data['doc_inspeccion_anterior'],
-                $data['doc_tarjeta_factura']
+                $data['doc_tarjeta_factura'],
+                $data['tecnico_numero_equipo']
             );
 
             $tipoFormulario = strtoupper(trim((string)($data['tipo_formulario'] ?? 'F17_TRACTO')));
@@ -160,7 +162,7 @@ class InspeccionesController extends AppController
                     'validate' => false,
                 ]);
                 $inspeccion->tipo_formulario = $tipoFormulario;
-                $this->_cargarCatalogos();
+                $this->_cargarCatalogos($inspeccion);
                 $this->set(compact('inspeccion', 'tipoFormulario'));
 
                 return null;
@@ -196,6 +198,10 @@ class InspeccionesController extends AppController
             } elseif ($docError !== null) {
                 $this->Flash->error($docError);
             } elseif ($this->Inspecciones->save($inspeccion, ['associated' => true])) {
+                $this->_sincronizarNumeroEquipoTecnico(
+                    (int)($inspeccion->tecnico_id ?? 0),
+                    $numeroEquipoPost
+                );
                 try {
                     $actualizado = false;
                     if ($this->_fotoVehiculoValida($up1)) {
@@ -238,9 +244,48 @@ class InspeccionesController extends AppController
             }
         }
 
-        $this->_cargarCatalogos();
+        $this->_cargarCatalogos($inspeccion);
         $this->set(compact('inspeccion', 'tipoFormulario'));
         return null;
+    }
+
+    /**
+     * INC-8 · JSON: ¿el folio_dictamen está disponible?
+     * GET /inspecciones/validar-folio?folio=M12&excluir={id?}
+     */
+    public function validarFolio(): Response
+    {
+        $this->request->allowMethod(['get']);
+
+        $folio = strtoupper(trim((string)$this->request->getQuery('folio')));
+        $excluir = (int)$this->request->getQuery('excluir');
+        $excluir = $excluir > 0 ? $excluir : null;
+
+        $payload = ['disponible' => true, 'inspeccion' => null];
+        if ($folio !== '') {
+            $otra = $this->Inspecciones->buscarPorFolioDictamen($folio, $excluir);
+            if ($otra !== null) {
+                $fecha = $otra->get('fecha_inspeccion');
+                $fechaTxt = $fecha instanceof \DateTimeInterface
+                    ? $fecha->format('d/m/Y')
+                    : (string)($fecha ?? '');
+                $tec = $otra->get('tecnico');
+                $tecNombre = is_object($tec) ? (string)($tec->get('nombre') ?? '') : '';
+                $payload = [
+                    'disponible' => false,
+                    'inspeccion' => [
+                        'id' => (int)$otra->get('id'),
+                        'folio' => (string)$otra->get('folio_dictamen'),
+                        'fecha' => $fechaTxt,
+                        'tecnico' => $tecNombre,
+                    ],
+                ];
+            }
+        }
+
+        return $this->response
+            ->withType('application/json')
+            ->withStringBody(json_encode($payload, JSON_UNESCAPED_UNICODE));
     }
 
     /**
@@ -309,11 +354,13 @@ class InspeccionesController extends AppController
             $docTf = $this->request->getUploadedFile('doc_tarjeta_factura');
 
             $editData = $this->request->getData();
+            $numeroEquipoPost = (string)($editData['tecnico_numero_equipo'] ?? '');
             unset(
                 $editData['foto_vehiculo_1'],
                 $editData['foto_vehiculo_2'],
                 $editData['doc_inspeccion_anterior'],
-                $editData['doc_tarjeta_factura']
+                $editData['doc_tarjeta_factura'],
+                $editData['tecnico_numero_equipo']
             );
 
             $tipoFormulario = strtoupper(trim((string)($editData['tipo_formulario'] ?? $tipoFormulario)));
@@ -330,7 +377,7 @@ class InspeccionesController extends AppController
                     $editData,
                     ['associated' => $associated, 'validate' => false]
                 );
-                $this->_cargarCatalogos();
+                $this->_cargarCatalogos($inspeccion);
                 $this->set(compact('inspeccion', 'tipoFormulario'));
 
                 return null;
@@ -368,6 +415,10 @@ class InspeccionesController extends AppController
             } elseif ($docError !== null) {
                 $this->Flash->error($docError);
             } elseif ($this->Inspecciones->save($inspeccion, ['associated' => true])) {
+                $this->_sincronizarNumeroEquipoTecnico(
+                    (int)($inspeccion->tecnico_id ?? 0),
+                    $numeroEquipoPost
+                );
                 try {
                     $actualizado = false;
                     if ($this->_fotoVehiculoValida($up1)) {
@@ -414,27 +465,54 @@ class InspeccionesController extends AppController
             }
         }
 
-        $this->_cargarCatalogos();
+        $this->_cargarCatalogos($inspeccion);
         $this->set(compact('inspeccion', 'tipoFormulario'));
         return null;
     }
 
-    // ── ELIMINAR ─────────────────────────────────────────────
+    // ── CANCELAR (soft-delete INC-3; nunca borrado físico) ───
     public function delete(int $id): \Cake\Http\Response
     {
         $this->request->allowMethod(['post', 'delete']);
         if (!$this->esAdministrador()) {
-            throw new ForbiddenException('Solo un administrador puede eliminar inspecciones.');
+            throw new ForbiddenException('Solo un administrador puede cancelar inspecciones.');
         }
         $inspeccion = $this->Inspecciones->get($id);
-        $idIns = (int)$inspeccion->id;
+        $motivo = trim((string)$this->request->getData('motivo_cancelacion'));
+        if ($motivo === '') {
+            $this->Flash->error('Indique el motivo de cancelación.');
 
-        if ($this->Inspecciones->delete($inspeccion)) {
-            $this->_eliminarDirectorioFotosInspeccion($idIns);
-            $this->Flash->success('Inspección eliminada.');
-        } else {
-            $this->Flash->error('No se pudo eliminar.');
+            return $this->redirect(['action' => 'index']);
         }
+        if (mb_strlen($motivo) > 255) {
+            $motivo = mb_substr($motivo, 0, 255);
+        }
+
+        $data = ['estatus_registro' => 'CANCELADA'];
+        if ($this->Inspecciones->getSchema()->hasColumn('motivo_cancelacion')) {
+            $data['motivo_cancelacion'] = $motivo;
+        } else {
+            $prev = trim((string)($inspeccion->observaciones ?? ''));
+            $data['observaciones'] = trim($prev . "\n[CANCELADA] " . $motivo);
+        }
+
+        $inspeccion = $this->Inspecciones->patchEntity($inspeccion, $data, [
+            'validate' => false,
+            'accessibleFields' => [
+                'estatus_registro' => true,
+                'motivo_cancelacion' => true,
+                'observaciones' => true,
+            ],
+        ]);
+
+        if ($this->Inspecciones->save($inspeccion, ['checkRules' => false, 'associated' => []])) {
+            $this->Flash->success(
+                'Inspección cancelada. El folio permanece reservado y no se reutiliza.'
+            );
+        } else {
+            $this->Flash->error('No se pudo cancelar la inspección.');
+        }
+
         return $this->redirect(['action' => 'index']);
     }
 
@@ -470,7 +548,7 @@ class InspeccionesController extends AppController
 
         $dompdf = new Dompdf($options);
         $dompdf->loadHtml($html, 'UTF-8');
-        $dompdf->setPaper('letter', 'portrait');
+        $dompdf->setPaper('letter', 'landscape');
         $dompdf->render();
 
         $folio = (string)($inspeccion->folio_dictamen ?? '');
@@ -877,7 +955,7 @@ class InspeccionesController extends AppController
         return true;
     }
 
-    private function _cargarCatalogos(): void
+    private function _cargarCatalogos(?Entity $inspeccion = null): void
     {
         $tecnicos   = $this->fetchTable('Tecnicos')
             ->find('list', keyField: 'id', valueField: 'nombre')
@@ -930,11 +1008,23 @@ class InspeccionesController extends AppController
 
         $tecnicoSesionId = $this->alcanceTecnicoId();
         $tecnicoSesionNombre = null;
+        $tecnicoNumeroEquipo = '';
         if ($tecnicoSesionId !== null && $tecnicoSesionId > 0) {
             try {
-                $tecnicoSesionNombre = $this->fetchTable('Tecnicos')->get($tecnicoSesionId)->nombre;
+                $tecSes = $this->fetchTable('Tecnicos')->get($tecnicoSesionId);
+                $tecnicoSesionNombre = $tecSes->nombre;
+                $tecnicoNumeroEquipo = (string)($tecSes->numero_equipo ?? '');
             } catch (\Throwable $e) {
                 $tecnicoSesionNombre = null;
+            }
+        }
+        // En edición: preferir el equipo del técnico de la inspección.
+        if ($inspeccion !== null && (int)($inspeccion->tecnico_id ?? 0) > 0) {
+            try {
+                $tecIns = $this->fetchTable('Tecnicos')->get((int)$inspeccion->tecnico_id);
+                $tecnicoNumeroEquipo = (string)($tecIns->numero_equipo ?? $tecnicoNumeroEquipo);
+            } catch (\Throwable $e) {
+                // conservar valor de sesión
             }
         }
 
@@ -951,6 +1041,8 @@ class InspeccionesController extends AppController
         $estatusRegistroOpts = $schemaIns->hasColumn('estatus_registro')
             ? ['ACTIVA' => 'Activa', 'CANCELADA' => 'Cancelada']
             : [];
+
+        $ultimosFolios = $this->Inspecciones->ultimosFoliosPorPrefijo();
 
         $this->set(compact(
             'tecnicos',
@@ -975,11 +1067,41 @@ class InspeccionesController extends AppController
             'estadosMexico',
             'tecnicoSesionId',
             'tecnicoSesionNombre',
+            'tecnicoNumeroEquipo',
             'propietarioTieneCorreo',
             'propietarioTieneTelefono',
             'inspeccionTieneOdometro',
             'inspeccionTieneVolanteHolgura',
+            'ultimosFolios',
         ));
+    }
+
+    /**
+     * Persiste el número de equipo del operador (F-04 / encabezado lista).
+     */
+    private function _sincronizarNumeroEquipoTecnico(int $tecnicoId, string $numeroEquipo): void
+    {
+        if ($tecnicoId < 1) {
+            return;
+        }
+        $numero = trim($numeroEquipo);
+        if ($numero === '') {
+            return;
+        }
+        try {
+            $tecnicos = $this->fetchTable('Tecnicos');
+            if (!$tecnicos->getSchema()->hasColumn('numero_equipo')) {
+                return;
+            }
+            $tec = $tecnicos->get($tecnicoId);
+            if ((string)($tec->numero_equipo ?? '') === $numero) {
+                return;
+            }
+            $tec = $tecnicos->patchEntity($tec, ['numero_equipo' => $numero]);
+            $tecnicos->save($tec);
+        } catch (\Throwable $e) {
+            // No bloquear el guardado de la inspección si falla el catálogo.
+        }
     }
 
     private function _asegurarInspeccionVisibleParaSesion(Entity $inspeccion): void

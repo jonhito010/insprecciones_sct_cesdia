@@ -115,7 +115,7 @@ class AppController extends Controller
 
         $permitidas = [
             'Users' => ['logout'],
-            'Inspecciones' => ['index', 'add', 'view', 'edit', 'pdf', 'pdfLista', 'moduloImpresion', 'pdfRemolque', 'htmlRemolque', 'pdfMotriz', 'htmlMotriz', 'controlCesdia', 'horariosOcupadosTecnico'],
+            'Inspecciones' => ['index', 'add', 'view', 'edit', 'pdf', 'pdfLista', 'moduloImpresion', 'pdfRemolque', 'htmlRemolque', 'pdfMotriz', 'htmlMotriz', 'controlCesdia', 'horariosOcupadosTecnico', 'validarFolio'],
             'Tecnicos' => ['miFirma'],
         ];
 
