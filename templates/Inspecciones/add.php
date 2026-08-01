@@ -159,19 +159,27 @@ if (!$esEdicion && $folioTipoIni === '' && $folioEsperadoFormulario !== null) {
       <div class="cesdia-form-group">
         <label class="cesdia-label" for="cesdia-folio-tipo">Folio / Número de dictamen</label>
         <div class="cesdia-folio-dictamen-row" style="display:flex;gap:8px;align-items:center;">
-          <select id="cesdia-folio-tipo" name="cesdia_folio_tipo_ui" class="cesdia-select<?= $esEdicion ? '' : ' cesdia-default-field' ?>" style="width:92px;flex:0 0 auto;" autocomplete="off">
+          <?php
+            // BUG-1: el folio NO es valor predeterminado — no usar cesdia-default-field
+            // (si no, "Sin valores predeterminados" vacía tipo/resto y el hidden queda vacío
+            // mientras la marca verde INC-8 puede quedar obsoleta).
+            $folioEsperadoUi = $folioEsperadoFormulario ?? null;
+            $deshabilitarM = $folioEsperadoUi === 'A';
+            $deshabilitarA = $folioEsperadoUi === 'M';
+          ?>
+          <select id="cesdia-folio-tipo" name="cesdia_folio_tipo_ui" class="cesdia-select" style="width:92px;flex:0 0 auto;" autocomplete="off">
             <option value=""><?= h('Tipo') ?></option>
-            <?php
-              $folioEsperadoUi = $folioEsperadoFormulario ?? null;
-              $deshabilitarM = $folioEsperadoUi === 'A';
-              $deshabilitarA = $folioEsperadoUi === 'M';
-            ?>
             <option value="M"<?= $folioTipoIni === 'M' ? ' selected' : '' ?><?= $deshabilitarM ? ' disabled' : '' ?>>M</option>
             <option value="A"<?= $folioTipoIni === 'A' ? ' selected' : '' ?><?= $deshabilitarA ? ' disabled' : '' ?>>A</option>
           </select>
-          <input type="text" id="cesdia-folio-resto" name="cesdia_folio_resto_ui" class="cesdia-input<?= $df ?>" style="flex:1;min-width:0;" placeholder="Ej. 0000001" value="<?= h($folioRestoIni) ?>" maxlength="39" autocomplete="off" />
+          <input type="text" id="cesdia-folio-resto" name="cesdia_folio_resto_ui" class="cesdia-input" style="flex:1;min-width:0;" placeholder="Ej. 0000001" value="<?= h($folioRestoIni) ?>" maxlength="39" autocomplete="off" />
         </div>
-        <?= $this->Form->hidden('folio_dictamen', ['id' => 'cesdia-folio-dictamen-full', 'value' => $folioRaw !== '' ? $folioRaw : (($folioTipoIni !== '' ? $folioTipoIni : '') . $folioRestoIni)]) ?>
+        <?= $this->Form->hidden('folio_dictamen', [
+          'id' => 'cesdia-folio-dictamen-full',
+          'value' => $folioRaw !== '' ? $folioRaw : (($folioTipoIni !== '' ? $folioTipoIni : '') . $folioRestoIni),
+          // Evita que FormHelper ignore cambios JS del valor inicial al re-renderizar.
+          'autocomplete' => 'off',
+        ]) ?>
         <?php
           $ultM = !empty($ultimosFolios['M']) ? (string)$ultimosFolios['M'] : '—';
           $ultA = !empty($ultimosFolios['A']) ? (string)$ultimosFolios['A'] : '—';
@@ -811,6 +819,10 @@ echo $this->element($armador, [
       if (typeof window.cesdiaMergeFolioDictamen === 'function') {
         window.cesdiaMergeFolioDictamen();
       }
+      // BUG-1: no tocar folio (ya no es default-field); si hubiera estado residual, revalidar.
+      if (typeof window.cesdiaProgramarValidarFolio === 'function') {
+        window.cesdiaProgramarValidarFolio();
+      }
     }
     function restoreFields() {
       Object.keys(defaults).forEach(function (name) {
@@ -1089,6 +1101,7 @@ echo $this->element($armador, [
       }
       folioTimer = setTimeout(validarFolioAhora, 400);
     }
+    window.cesdiaProgramarValidarFolio = programarValidarFolio;
 
     tipo.addEventListener('change', programarValidarFolio);
     resto.addEventListener('input', programarValidarFolio);
@@ -1096,6 +1109,16 @@ echo $this->element($armador, [
     if (fFolio) {
       fFolio.addEventListener('submit', function (ev) {
         mergeFolioDictamen();
+        var folioEnvio = (h.value || '').trim().toUpperCase();
+        // BUG-1: no enviar solo prefijo M/A ni vacío (el número debe ir en el hidden).
+        if (folioEnvio === '' || folioEnvio === 'M' || folioEnvio === 'A') {
+          ev.preventDefault();
+          alert('Indique el número de dictamen completo (letra M/A + número) antes de guardar.');
+          if (resto) {
+            resto.focus();
+          }
+          return;
+        }
         if (window.cesdiaGuardarBloqueos && window.cesdiaGuardarBloqueos.folio) {
           ev.preventDefault();
           alert('El folio ya existe. Corrija el número de dictamen antes de guardar.');

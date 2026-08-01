@@ -151,18 +151,19 @@ class InspeccionesTable extends Table
             ->notEmptyString('tecnico_id', 'Seleccione el técnico inspector.')
             ->integer('tecnico_id', 'Técnico no válido.')
             ->greaterThan('tecnico_id', 0, 'Seleccione el técnico inspector.')
-            ->allowEmptyString('folio_dictamen')
+            // BUG-1: folio obligatorio (antes allowEmpty permitía NULL/'' al fallar el hidden).
+            ->notEmptyString('folio_dictamen', 'Indique el número de dictamen (M/A + número).')
             ->maxLength('folio_dictamen', 40, 'Folio demasiado largo.')
             ->add('folio_dictamen', 'folioDictamenMotrizArrastre', [
                 'rule' => function ($value) {
                     if ($value === null || $value === '') {
-                        return true;
+                        return false;
                     }
                     $v = strtoupper(trim((string)$value));
-
-                    return (bool)preg_match('/^[AM][A-Z0-9\-_]*$/', $v);
+                    // Al menos un carácter tras M/A (rechaza solo "M" o "A").
+                    return (bool)preg_match('/^[AM][A-Z0-9\-_]+$/', $v);
                 },
-                'message' => 'El folio de dictamen debe iniciar con M (motriz) o A (arrastre); después solo letras mayúsculas, números, guiones o guión bajo.',
+                'message' => 'El folio de dictamen debe iniciar con M (motriz) o A (arrastre) y continuar con al menos un número o letra (mayúsculas, guiones o guión bajo).',
             ]);
 
         if ($this->getSchema()->hasColumn('odometro')) {

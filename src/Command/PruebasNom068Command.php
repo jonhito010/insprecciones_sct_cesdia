@@ -153,6 +153,7 @@ class PruebasNom068Command extends Command
 
             if ($soloKey === null) {
                 $this->correrT9FolioUnico();
+                $this->correrT10FolioPersiste();
             }
 
             if ($conPdf) {
@@ -922,6 +923,69 @@ class PruebasNom068Command extends Command
         }
 
         $this->registrar('T9', 'Folio único', $fails, $n);
+    }
+
+    /**
+     * BUG-1 · El folio debe persistir; vacío / solo prefijo M|A deben rechazarse.
+     */
+    private function correrT10FolioPersiste(): void
+    {
+        $fails = [];
+        $n = 0;
+
+        try {
+            $folio = sprintf('A-BUG1%02d', $this->seq + 1);
+            $insp = $this->crearInspeccion('F19_REMOLQUE', 'S3', [
+                'folio_dictamen' => $folio,
+            ]);
+            $n++;
+            $re = $this->inspecciones->get((int)$insp->id);
+            if (strtoupper(trim((string)$re->folio_dictamen)) !== strtoupper($folio)) {
+                $fails[] = '[COMUNES] [FOLIO] no persistió al crear: esperado ' . $folio
+                    . ' obtuvo ' . var_export($re->folio_dictamen, true);
+            }
+
+            // Editar sin cambiar folio → se conserva.
+            $entity = $this->inspecciones->patchEntity($re, [
+                'observaciones' => (string)($re->observaciones ?? '') . ' t10-ok',
+            ]);
+            $n++;
+            if (!$this->inspecciones->save($entity)) {
+                $fails[] = '[COMUNES] [FOLIO] edición sin cambio de folio falló: '
+                    . json_encode($entity->getErrors(), JSON_UNESCAPED_UNICODE);
+            } else {
+                $re2 = $this->inspecciones->get((int)$insp->id);
+                $n++;
+                if (strtoupper(trim((string)$re2->folio_dictamen)) !== strtoupper($folio)) {
+                    $fails[] = '[COMUNES] [FOLIO] se perdió el folio al editar: '
+                        . var_export($re2->folio_dictamen, true);
+                }
+            }
+
+            // Vacío y solo prefijo deben fallar validación (capa servidor BUG-1).
+            foreach (['', 'M', 'A'] as $malo) {
+                $n++;
+                $probe = $this->inspecciones->newEmptyEntity();
+                $probe = $this->inspecciones->patchEntity($probe, [
+                    'tipo_formulario' => 'F19_REMOLQUE',
+                    'unidad_inspeccion_id' => $this->unidadId,
+                    'tecnico_id' => $this->tecnicoId,
+                    'folio_dictamen' => $malo,
+                    'fecha_inspeccion' => '2099-08-02',
+                    'hora_inicio' => '08:00:00',
+                    'hora_fin' => '08:30:00',
+                    'dictamen' => 'CUMPLE',
+                    'estatus_registro' => 'ACTIVA',
+                ]);
+                if ($probe->getError('folio_dictamen') === []) {
+                    $fails[] = '[COMUNES] [FOLIO] se aceptó folio inválido: ' . var_export($malo, true);
+                }
+            }
+        } catch (Throwable $e) {
+            $fails[] = '[COMUNES] [FOLIO] excepción en T10: ' . $e->getMessage();
+        }
+
+        $this->registrar('T10', 'Folio persiste', $fails, $n);
     }
 
     private function correrT7(): void

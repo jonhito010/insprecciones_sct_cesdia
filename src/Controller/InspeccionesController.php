@@ -149,6 +149,8 @@ class InspeccionesController extends AppController
                 $data['doc_tarjeta_factura'],
                 $data['tecnico_numero_equipo']
             );
+            // BUG-1: reconstruir folio_dictamen desde UI (tipo+resto) si el hidden llegó vacío.
+            $data = $this->_resolverFolioDictamenDesdeRequest($data);
 
             $tipoFormulario = strtoupper(trim((string)($data['tipo_formulario'] ?? 'F17_TRACTO')));
             $folioDictamen = trim((string)($data['folio_dictamen'] ?? ''));
@@ -362,6 +364,8 @@ class InspeccionesController extends AppController
                 $editData['doc_tarjeta_factura'],
                 $editData['tecnico_numero_equipo']
             );
+            // BUG-1: reconstruir folio_dictamen desde UI (tipo+resto) si el hidden llegó vacío.
+            $editData = $this->_resolverFolioDictamenDesdeRequest($editData);
 
             $tipoFormulario = strtoupper(trim((string)($editData['tipo_formulario'] ?? $tipoFormulario)));
             $errFolioFormEdit = TipoVehiculoRequisitos::validarFormularioContraFolioDictamen(
@@ -1074,6 +1078,42 @@ class InspeccionesController extends AppController
             'inspeccionTieneVolanteHolgura',
             'ultimosFolios',
         ));
+    }
+
+    /**
+     * BUG-1 · Compone folio_dictamen desde los campos UI (tipo M/A + resto)
+     * cuando el hidden llega vacío o solo con el prefijo.
+     *
+     * Los inputs visibles viajan siempre en el POST (no son disabled); el hidden
+     * puede quedar desfasado si JS no hizo merge o si se vació el resto.
+     *
+     * @param array<string, mixed> $data
+     * @return array<string, mixed>
+     */
+    private function _resolverFolioDictamenDesdeRequest(array $data): array
+    {
+        $folio = strtoupper(trim((string)($data['folio_dictamen'] ?? '')));
+        $tipo = strtoupper(trim((string)($data['cesdia_folio_tipo_ui'] ?? '')));
+        $resto = trim((string)($data['cesdia_folio_resto_ui'] ?? ''));
+        if ($tipo !== 'M' && $tipo !== 'A') {
+            $tipo = '';
+        }
+        if (
+            $tipo !== ''
+            && $resto !== ''
+            && strtoupper($resto[0]) === $tipo
+        ) {
+            $resto = ltrim(substr($resto, 1));
+        }
+        $compuesto = strtoupper(trim($tipo !== '' ? ($tipo . $resto) : $resto));
+
+        if ($compuesto !== '' && ($folio === '' || $folio === 'M' || $folio === 'A' || strlen($compuesto) > strlen($folio))) {
+            $data['folio_dictamen'] = $compuesto;
+        }
+
+        unset($data['cesdia_folio_tipo_ui'], $data['cesdia_folio_resto_ui']);
+
+        return $data;
     }
 
     /**
