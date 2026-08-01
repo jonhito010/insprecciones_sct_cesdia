@@ -4,7 +4,6 @@ declare(strict_types=1);
 namespace App\Model\Table;
 
 use App\Validation\InspeccionMexico;
-use App\Validation\Nom068Formato;
 use ArrayObject;
 use Cake\Event\EventInterface;
 use Cake\ORM\RulesChecker;
@@ -49,22 +48,12 @@ class InspeccionRinesTable extends Table
     public function validationDefault(Validator $validator): Validator
     {
         if ($this->getSchema()->hasColumn('numero_llanta')) {
+            // Tope global 1–12 (cubre F-19). El formulario limita filas por formato
+            // vía Nom068Formato::filasTablaComplementaria (8/10/12).
             $validator
                 ->allowEmptyString('numero_llanta')
                 ->integer('numero_llanta', 'Número de llanta no válido.')
-                ->range('numero_llanta', [1, 12], 'El número de llanta debe estar entre 1 y 12.')
-                ->add('numero_llanta', 'maxPorFormato', [
-                    'rule' => function ($value, $context) {
-                        if ($value === null || $value === '') {
-                            return true;
-                        }
-                        $max = $this->maxLlantaDesdeContexto($context);
-                        $n = (int)$value;
-
-                        return $n >= 1 && $n <= $max;
-                    },
-                    'message' => 'Número de llanta fuera del rango del formato (use Nom068Formato).',
-                ]);
+                ->range('numero_llanta', [1, 12], 'El número de llanta debe estar entre 1 y 12.');
         }
 
         $validator
@@ -93,36 +82,5 @@ class InspeccionRinesTable extends Table
         }
 
         return $rules;
-    }
-
-    /**
-     * @param array<string, mixed> $context
-     */
-    private function maxLlantaDesdeContexto(array $context): int
-    {
-        $tipo = null;
-        $providers = $context['providers'] ?? [];
-        if (is_array($providers)) {
-            foreach ($providers as $p) {
-                if (is_object($p) && method_exists($p, 'get')) {
-                    $tipo = $p->get('tipo_formulario');
-                    if ($tipo) {
-                        break;
-                    }
-                }
-            }
-        }
-        if ($tipo === null || $tipo === '') {
-            $inspId = (int)($context['data']['inspeccion_id'] ?? 0);
-            if ($inspId > 0 && $this->Inspecciones !== null) {
-                $tipo = $this->Inspecciones->find()
-                    ->select(['tipo_formulario'])
-                    ->where(['id' => $inspId])
-                    ->first()
-                    ?->tipo_formulario;
-            }
-        }
-
-        return Nom068Formato::filasTablaComplementaria((string)($tipo ?? 'F17_TRACTO'));
     }
 }
