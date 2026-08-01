@@ -193,6 +193,28 @@ if (!$esEdicion && $folioTipoIni === '' && $folioEsperadoFormulario !== null) {
           ]) ?>
         </div>
         <?php endif; ?>
+        <?php
+          $esMotrizForm = in_array((string)$tipoFormulario, ['F17_TRACTO', 'F18_CAMION', 'F21_AUTOBUS'], true);
+          $mostrarVolanteHolgura = !empty($inspeccionTieneVolanteHolgura) && $esMotrizForm;
+        ?>
+        <?php if ($mostrarVolanteHolgura) : ?>
+        <div id="cesdia-wrap-volante-holgura" style="margin-top:10px;display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+          <?= $this->Form->control('volante_cm', [
+            'label' => ['text' => 'VOLANTE (cm)', 'class' => 'cesdia-label'],
+            'type' => 'number',
+            'step' => '0.01',
+            'min' => 0,
+            'class' => 'cesdia-input' . $df,
+          ]) ?>
+          <?= $this->Form->control('holgura_cm', [
+            'label' => ['text' => 'HOLGURA (cm)', 'class' => 'cesdia-label'],
+            'type' => 'number',
+            'step' => '0.01',
+            'min' => 0,
+            'class' => 'cesdia-input' . $df,
+          ]) ?>
+        </div>
+        <?php endif; ?>
       </div>
       <div class="cesdia-form-group">
         <?= $this->Form->control('fecha_inspeccion', [
