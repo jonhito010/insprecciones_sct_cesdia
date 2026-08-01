@@ -79,12 +79,31 @@ class InspeccionesTable extends Table
             'foreignKey' => 'inspeccion_id',
             'dependent'  => true,
         ]);
+        $this->hasMany('InspeccionObservaciones', [
+            'foreignKey' => 'inspeccion_id',
+            'dependent'  => true,
+            'sort'       => ['InspeccionObservaciones.orden' => 'ASC'],
+            'saveStrategy' => 'replace',
+        ]);
     }
 
     public function beforeMarshal(EventInterface $event, ArrayObject $data, ArrayObject $options): void
     {
         if (isset($data['folio_dictamen']) && is_string($data['folio_dictamen'])) {
             $data['folio_dictamen'] = strtoupper(trim($data['folio_dictamen']));
+        }
+
+        // P1.1: sincronizar resultado legacy desde dictamen + estatus (no se elimina la columna).
+        if ($this->getSchema()->hasColumn('dictamen')) {
+            $estatus = strtoupper(trim((string)($data['estatus_registro'] ?? 'ACTIVA')));
+            $dictamen = strtoupper(trim((string)($data['dictamen'] ?? '')));
+            if ($estatus === 'CANCELADA') {
+                $data['resultado'] = 'CANCELADO';
+            } elseif ($dictamen === 'CUMPLE') {
+                $data['resultado'] = 'APROBADO';
+            } elseif ($dictamen === 'NO CUMPLE') {
+                $data['resultado'] = 'RECHAZADO';
+            }
         }
     }
 
@@ -195,12 +214,36 @@ class InspeccionesTable extends Table
                 },
                 'message' => 'Valor de cámara (mm) debe estar entre 0 y 500.',
             ])
-            ->notEmptyString('resultado', 'Seleccione el resultado de la inspección.')
-            ->inList('resultado', ['APROBADO', 'RECHAZADO', 'CANCELADO'], 'Resultado no válido.')
             ->allowEmptyString('observaciones')
             ->maxLength('observaciones', 8000, 'Observaciones demasiado largas (máx. 8000 caracteres).')
             ->allowEmptyString('foto_vehiculo_1')
             ->allowEmptyString('foto_vehiculo_2');
+
+        if ($this->getSchema()->hasColumn('dictamen')) {
+            $validator
+                ->notEmptyString('dictamen', 'Seleccione el dictamen (CUMPLE / NO CUMPLE).')
+                ->inList('dictamen', ['CUMPLE', 'NO CUMPLE'], 'Dictamen no válido.')
+                ->notEmptyString('estatus_registro', 'Seleccione el estatus del registro.')
+                ->inList('estatus_registro', ['ACTIVA', 'CANCELADA'], 'Estatus de registro no válido.')
+                ->allowEmptyString('resultado')
+                ->inList('resultado', ['APROBADO', 'RECHAZADO', 'CANCELADO'], 'Resultado legacy no válido.', function ($context) {
+                    return ($context['data']['resultado'] ?? '') !== '';
+                });
+        } else {
+            $validator
+                ->notEmptyString('resultado', 'Seleccione el resultado de la inspección.')
+                ->inList('resultado', ['APROBADO', 'RECHAZADO', 'CANCELADO'], 'Resultado no válido.');
+        }
+
+        if ($this->getSchema()->hasColumn('volante_cm')) {
+            foreach (['volante_cm', 'holgura_cm'] as $cmCampo) {
+                $validator
+                    ->allowEmptyString($cmCampo)
+                    ->decimal($cmCampo, null, 'Indique un número válido (cm).')
+                    ->greaterThanOrEqual($cmCampo, 0, 'No puede ser negativo.')
+                    ->lessThanOrEqual($cmCampo, 999.99, 'Valor demasiado grande.');
+            }
+        }
 
         $varillasMm = ['varilla_ll1_2_mm', 'varilla_ll3_4_mm', 'varilla_ll5_6_mm', 'varilla_ll7_8_mm'];
         foreach ($varillasMm as $campo) {

@@ -31,15 +31,33 @@ class Inspeccion extends Entity
 
     public function getResultadoClase(): string
     {
-        switch ($this->resultado) {
-            case 'APROBADO':
-                return 'success';
-            case 'RECHAZADO':
-                return 'danger';
-            case 'CANCELADO':
-                return 'warning';
-            default:
-                return 'secondary';
+        $estatus = strtoupper((string)($this->estatus_registro ?? ''));
+        if ($estatus === 'CANCELADA' || $this->resultado === 'CANCELADO') {
+            return 'warning';
         }
+        $dictamen = strtoupper((string)($this->dictamen ?? ''));
+        if ($dictamen === 'CUMPLE' || $this->resultado === 'APROBADO') {
+            return 'success';
+        }
+        if ($dictamen === 'NO CUMPLE' || $this->resultado === 'RECHAZADO') {
+            return 'danger';
+        }
+
+        return 'secondary';
+    }
+
+    /** Dictamen oficial CUMPLE/NO CUMPLE con fallback a resultado legacy. */
+    public function getDictamenEfectivo(): ?string
+    {
+        $d = strtoupper(trim((string)($this->dictamen ?? '')));
+        if ($d === 'CUMPLE' || $d === 'NO CUMPLE') {
+            return $d;
+        }
+
+        return match (strtoupper((string)($this->resultado ?? ''))) {
+            'APROBADO' => 'CUMPLE',
+            'RECHAZADO' => 'NO CUMPLE',
+            default => null,
+        };
     }
 }

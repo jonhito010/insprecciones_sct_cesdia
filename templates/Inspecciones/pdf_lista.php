@@ -28,9 +28,34 @@ $modeloTxt = $v ? trim(implode(' ', array_filter([(string)($v->marca ?? ''), (st
 $serieTxt  = $v && !empty($v->niv) ? h($v->niv) : '—';
 $placasTxt = $v && !empty($v->placas) ? h($v->placas) : '—';
 $uvNombre  = $u && !empty($u->nombre) ? h($u->nombre) : 'CESDIA';
-$folio     = !empty($inspeccion->folio_dictamen) ? h($inspeccion->folio_dictamen) : '—';
-$resTxt    = strtoupper(trim((string)($inspeccion->resultado ?? '')));
-$obsGeneral = trim((string)($inspeccion->observaciones ?? ''));
+$folioRawPdf = (string)($inspeccion->folio_dictamen ?? '');
+// P2.4: F-19 imprime A-{consecutivo}
+if (($inspeccion->tipo_formulario ?? '') === 'F19_REMOLQUE' && $folioRawPdf !== '') {
+    if (preg_match('/^A-?(.+)$/i', $folioRawPdf, $fm)) {
+        $folioRawPdf = 'A-' . ltrim($fm[1], '-');
+    }
+}
+$folio     = $folioRawPdf !== '' ? h($folioRawPdf) : '—';
+$dictamenTxt = method_exists($inspeccion, 'getDictamenEfectivo')
+    ? (string)($inspeccion->getDictamenEfectivo() ?? '')
+    : '';
+if ($dictamenTxt === '') {
+    $dictamenTxt = match (strtoupper(trim((string)($inspeccion->resultado ?? '')))) {
+        'APROBADO' => 'CUMPLE',
+        'RECHAZADO' => 'NO CUMPLE',
+        default => '',
+    };
+}
+$resTxt = $dictamenTxt; // compat con bloque inferior
+$obsGeneral = ''; // notas internas no se imprimen (P1.2)
+$obsEstruct = [];
+if (!empty($inspeccion->inspeccion_observaciones)) {
+    foreach ($inspeccion->inspeccion_observaciones as $orow) {
+        $obsEstruct[(int)($orow->orden ?? 0)] = $orow;
+    }
+}
+$volanteCm = $inspeccion->volante_cm ?? null;
+$holguraCm = $inspeccion->holgura_cm ?? null;
 
 /* ── Convierte valor de BD a marcas Aprobado / Rechazado / N/A (columnas del PDF) ── */
 $mk = static function (?string $val): array {
@@ -1103,7 +1128,7 @@ $pdfSymLl = static function (?string $vx) use ($mk): string {
   </tr>
 </table>
 
-<!-- Observaciones -->
+<!-- Observaciones estructuradas (6 filas) -->
 <table class="obs-tbl" cellspacing="0">
   <thead>
     <tr>
@@ -1112,31 +1137,29 @@ $pdfSymLl = static function (?string $vx) use ($mk): string {
     </tr>
   </thead>
   <tbody>
-    <?php if ($obsGeneral !== ''): ?>
+    <?php for ($r = 1; $r <= 6; $r++):
+        $or = $obsEstruct[$r] ?? null;
+        $pn = trim((string)($or->punto_nom ?? ''));
+        $rq = trim((string)($or->requisito ?? ''));
+    ?>
     <tr>
-      <td class="td-nom">—</td>
-      <td style="font-size:6.4pt;white-space:pre-wrap;"><?= h($obsGeneral) ?></td>
-    </tr>
-    <?php endif; ?>
-    <?php for ($r = 0; $r < 4; $r++): ?>
-    <tr>
-      <td class="td-nom" style="height:14px;"></td>
-      <td></td>
+      <td class="td-nom" style="height:14px;"><?= $pn !== '' ? h($pn) : '' ?></td>
+      <td style="font-size:6.4pt;white-space:pre-wrap;"><?= $rq !== '' ? h($rq) : '' ?></td>
     </tr>
     <?php endfor; ?>
   </tbody>
 </table>
 
-<!-- Resultado -->
+<!-- Dictamen oficial -->
 <table class="resultado-fila" cellspacing="0">
   <tr>
     <td style="width:50%;">
-      <span class="res-box"><?= $resTxt === 'APROBADO' ? '✓' : '' ?></span>
-      <span class="res-lbl">APROBADO</span>
+      <span class="res-box"><?= $dictamenTxt === 'CUMPLE' ? '✓' : '' ?></span>
+      <span class="res-lbl">CUMPLE</span>
     </td>
     <td style="width:50%;">
-      <span class="res-box rojo"><?= $resTxt === 'RECHAZADO' ? '✗' : '' ?></span>
-      <span class="res-lbl rojo">RECHAZADO</span>
+      <span class="res-box rojo"><?= $dictamenTxt === 'NO CUMPLE' ? '✗' : '' ?></span>
+      <span class="res-lbl rojo">NO CUMPLE</span>
     </td>
   </tr>
 </table>

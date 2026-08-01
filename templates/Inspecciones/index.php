@@ -153,17 +153,19 @@ $formularioEtiquetas = [
     <tbody>
       <?php foreach ($inspecciones as $ins) : ?>
       <?php
-        // Badge resultado — PHP 7.4
+        // Badge dictamen / estatus (P1.1) con fallback a resultado legacy
+        $estatusReg = strtoupper((string)($ins->estatus_registro ?? ''));
+        $dictamen = strtoupper((string)($ins->dictamen ?? ''));
         $resultado = isset($ins->resultado) ? $ins->resultado : '';
-        if ($resultado === 'APROBADO') {
-            $pillClass = 'badge-aprobado';
-            $pillLabel = 'Aprobado';
-        } elseif ($resultado === 'RECHAZADO') {
-            $pillClass = 'badge-rechazado';
-            $pillLabel = 'Rechazado';
-        } elseif ($resultado === 'CANCELADO') {
+        if ($estatusReg === 'CANCELADA' || $resultado === 'CANCELADO') {
             $pillClass = 'badge-cancelado';
-            $pillLabel = 'Cancelado';
+            $pillLabel = 'Cancelada';
+        } elseif ($dictamen === 'CUMPLE' || $resultado === 'APROBADO') {
+            $pillClass = 'badge-aprobado';
+            $pillLabel = 'CUMPLE';
+        } elseif ($dictamen === 'NO CUMPLE' || $resultado === 'RECHAZADO') {
+            $pillClass = 'badge-rechazado';
+            $pillLabel = 'NO CUMPLE';
         } else {
             $pillClass = 'badge-info';
             $pillLabel = ($resultado !== '') ? h($resultado) : '—';

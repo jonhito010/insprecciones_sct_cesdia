@@ -944,6 +944,13 @@ class InspeccionesController extends AppController
 
         $schemaIns = $this->fetchTable('Inspecciones')->getSchema();
         $inspeccionTieneOdometro = $schemaIns->hasColumn('odometro');
+        $inspeccionTieneVolanteHolgura = $schemaIns->hasColumn('volante_cm');
+        $dictamenOpts = $schemaIns->hasColumn('dictamen')
+            ? ['CUMPLE' => 'CUMPLE', 'NO CUMPLE' => 'NO CUMPLE']
+            : [];
+        $estatusRegistroOpts = $schemaIns->hasColumn('estatus_registro')
+            ? ['ACTIVA' => 'Activa', 'CANCELADA' => 'Cancelada']
+            : [];
 
         $this->set(compact(
             'tecnicos',
@@ -951,6 +958,8 @@ class InspeccionesController extends AppController
             'unidadesInfo',
             'propietarios',
             'resultados',
+            'dictamenOpts',
+            'estatusRegistroOpts',
             'cumpleOpts',
             'tiposVehiculo',
             'modalidadesVehiculo',
@@ -969,6 +978,7 @@ class InspeccionesController extends AppController
             'propietarioTieneCorreo',
             'propietarioTieneTelefono',
             'inspeccionTieneOdometro',
+            'inspeccionTieneVolanteHolgura',
         ));
     }
 
@@ -1022,7 +1032,11 @@ class InspeccionesController extends AppController
         $inspeccion->fecha_inspeccion_ant = Date::now()->subYears(1);
         $inspeccion->hora_inicio = '09:00:00';
         $inspeccion->hora_fin = '10:00:00';
-        $inspeccion->resultado = 'APROBADO';
+        $inspeccion->resultado = 'APROBADO'; // legacy sync
+        if ($this->Inspecciones->getSchema()->hasColumn('dictamen')) {
+            $inspeccion->dictamen = 'CUMPLE';
+            $inspeccion->estatus_registro = 'ACTIVA';
+        }
         $inspeccion->vehiculo_presentado = 'VACIO';
 
         $inspeccion->tipo_camara_frenado = 'CAMARA DE FRENO TIPO ABRAZADERA';
