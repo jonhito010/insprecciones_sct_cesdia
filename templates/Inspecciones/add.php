@@ -541,11 +541,13 @@ if (!$esEdicion && $folioTipoIni === '' && $folioEsperadoFormulario !== null) {
 // Secciones específicas del tipo de formulario (armador por tipo).
 $armador = 'Inspeccion/formularios/' . strtolower($tipoFormulario);
 echo $this->element($armador, [
-  'inspeccion'     => $inspeccion,
-  'cumpleOpts'     => $cumpleOpts,
-  'df'             => $df,
-  'tipoFormulario' => $tipoFormulario,
-  'resultados'     => $resultados,
+  'inspeccion'           => $inspeccion,
+  'cumpleOpts'           => $cumpleOpts,
+  'df'                   => $df,
+  'tipoFormulario'       => $tipoFormulario,
+  'resultados'           => $resultados,
+  'dictamenOpts'         => $dictamenOpts ?? [],
+  'estatusRegistroOpts'  => $estatusRegistroOpts ?? [],
 ]);
 ?>
 

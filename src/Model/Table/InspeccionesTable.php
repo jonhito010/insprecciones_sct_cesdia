@@ -78,6 +78,7 @@ class InspeccionesTable extends Table
         $this->hasMany('InspeccionRines', [
             'foreignKey' => 'inspeccion_id',
             'dependent'  => true,
+            'saveStrategy' => 'replace',
         ]);
         $this->hasMany('InspeccionObservaciones', [
             'foreignKey' => 'inspeccion_id',
