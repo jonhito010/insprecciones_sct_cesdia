@@ -145,7 +145,8 @@ $secVisibilidad = [
               'value'   => $ilum ? ($ilum->ventanas_laterales ?? 'CUMPLE') : 'CUMPLE',
             ]) ?>
           </div>
-          <?php elseif (($tipoFormulario ?? '') === 'F17_TRACTO') : ?>
+          <?php elseif (in_array($tipoFormulario ?? '', ['F17_TRACTO', 'F18_CAMION'], true)) : ?>
+          <!-- P3.2 / corrección plan: proteccion_camion en CABINA de F-17 y F-18 (NOM 39) -->
           <div class="cesdia-form-group">
             <?= $this->Form->control('inspeccion_sistema_aire.proteccion_camion', [
               'label'   => ['text' => 'PROTECCIÓN DEL CAMIÓN', 'class' => 'cesdia-label'],

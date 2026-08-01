@@ -24,43 +24,14 @@ $esDolly = ($tipoFormulario ?? '') === 'F20_DOLLY';
 
 
 
-$camposAcopl = $esDolly
-
-    ? [
-
-        'quinta_rueda'           => 'Quinta rueda montaje al chasis',
-
-        'deslizadores'           => 'Deslizadores, liberación de aire, chasis',
-
-        'gancho_pinzon'          => 'Gancho pinzón, montaje, pestillo cerrojo, condición, sujetadores (cuando aplique)',
-
-        'quinta_rueda_oscilante' => 'Quinta rueda oscilante (cuando aplique)',
-
-        'manija_operacion'       => 'Manija de operación',
-
-    ]
-
-    : [
-
-        'quinta_rueda'           => 'Quinta rueda',
-
-        'deslizadores'           => 'Deslizadores / liberación de aire',
-
-        'gancho_pinzon'          => 'Gancho pinzón',
-
-        'ojo_lanza'              => 'Ojo de lanza',
-
-        'barra_traccion'         => 'Barra de tracción',
-
-        'quinta_rueda_oscilante' => 'Quinta rueda oscilante',
-
-        'manija_operacion'       => 'Manija de operación',
-
-        'cadenas_sujetadores'    => 'Cadenas y sujetadores',
-
-        'capacidad_arrastre'     => 'Capacidad de arrastre (40,000 kg)',
-
-    ];
+// P3.2: F-17 solo 5 conceptos NOM 79 (ocultar extras; columnas se conservan).
+$camposAcopl = [
+    'quinta_rueda'           => 'Quinta rueda montaje al chasis',
+    'deslizadores'           => 'Deslizadores, liberación de aire, chasis',
+    'gancho_pinzon'          => 'Gancho pinzón, montaje, pestillo cerrojo, condición, sujetadores (cuando aplique)',
+    'quinta_rueda_oscilante' => 'Quinta rueda oscilante (cuando aplique)',
+    'manija_operacion'       => 'Manija de operación',
+];
 
 ?>
 

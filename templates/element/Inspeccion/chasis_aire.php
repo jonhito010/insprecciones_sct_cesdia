@@ -30,13 +30,14 @@ $esAutobus = $tipoFormulario === 'F21_AUTOBUS';
     <?php if (!$esAutobus) : ?>
     <div class="cesdia-grid-3">
       <?php
-      $camposChasis = ($esRemolque || $esDolly)
+            // P3.2: ocultar convertidor en F-17/F-18 (columna se conserva en BD)
+            $camposChasis = ($esRemolque || $esDolly)
           ? [
               'vigas_chasis'        => 'Vigas del chasis: reparadas, perforadas, agrietadas, oxidadas, corroídas',
               'sujetadores_chasis'  => 'Sujetadores del chasis: faltantes, flojos, corroídos',
               'travesanos'          => 'Travesaños: faltantes doblados',
           ]
-          : ['convertidor' => 'Convertidor (origen)', 'vigas_chasis' => 'Vigas del chasis', 'sujetadores_chasis' => 'Sujetadores', 'travesanos' => 'Travesaños', 'mangueras_tuberia' => 'Mangueras o tubería'];
+          : ['vigas_chasis' => 'Vigas del chasis', 'sujetadores_chasis' => 'Sujetadores', 'travesanos' => 'Travesaños', 'mangueras_tuberia' => 'Mangueras o tubería'];
       foreach ($camposChasis as $c => $label):
       ?><div class="cesdia-form-group"><?= $this->Form->control("inspeccion_chasis.$c", ['label' => ['text' => $label, 'class' => 'cesdia-label'], 'options' => $cumpleOpts, 'empty' => '--', 'class' => 'cesdia-select' . $df, 'value' => $chasis && isset($chasis->$c) ? $chasis->$c : 'CUMPLE']) ?></div><?php endforeach; ?>
     </div>
@@ -54,16 +55,13 @@ $esAutobus = $tipoFormulario === 'F21_AUTOBUS';
               'combustible_tanque'         => 'TANQUE (ES) SOPORTE, SUJETADORES Y CORREAS',
               'combustible_cubierta_jaula' => 'CUBIERTA DEL TANQUE TIPO JAULA',
               'combustible_lineas_bomba'   => 'LINEAS, MANGUERAS, BOMBA',
-              'combustible_gas_lp'         => 'Combustible Gas LP (cuando aplique)',
               'escape_multiple'            => 'MULTIPLE',
               'escape_mofle'               => 'MOFLE, RESONADORES',
               'escape_tubos'               => 'TUBOS DE ESCAPE, COBERTURAS TERMICAS',
               'escape_montaje'             => 'MONTAJE Y HERRAJES, POSICION, FINAL DEL TUBO',
               'bateria'                    => 'Batería',
             ];
-            if ($esAutobus) {
-                unset($camposChasisCabina['combustible_gas_lp']);
-            }
+            // P3.2: combustible_gas_lp genérico oculto; F-18 usa desglose gaslp_*
             foreach ($camposChasisCabina as $c => $l): ?>
             <div class="cesdia-form-group"><?= $this->Form->control("inspeccion_chasis.$c", ['label' => ['text' => $l, 'class' => 'cesdia-label'], 'options' => $cumpleOpts, 'empty' => '--', 'class' => 'cesdia-select' . $df, 'value' => $chasis && isset($chasis->$c) ? $chasis->$c : 'CUMPLE']) ?></div>
             <?php endforeach; ?>
@@ -123,10 +121,11 @@ $esAutobus = $tipoFormulario === 'F21_AUTOBUS';
               'gobernador'               => 'Gobernador',
               'dispositivo_baja_presion' => 'Dispositivo baja presión',
             ];
-            if ($esCamion) {
-                $camposAireAmp['proteccion_camion'] = 'PROTECCIÓN DEL CAMIÓN';
-            } elseif ($tipoFormulario === 'F21_AUTOBUS') {
+            // P3.2: en F-18 proteccion_camion NO va en frenos/aire; se conserva en CABINA.
+            if ($tipoFormulario === 'F21_AUTOBUS') {
                 $camposAireAmp['proteccion_camion'] = 'SISTEMA DE PROTECCIÓN DEL CAMIÓN (SIN REMOLQUE ENGANCHADO): VÁLVULA DE PROTECCIÓN, VÁLVULA DE SUMINISTRO DEL REMOLQUE (20 Y 45 PSI) (60 PSI)';
+            } elseif ($esTracto) {
+                // F-17 también lo tiene en cabina; aquí no duplicar en aire amp.
             }
             foreach ($camposAireAmp as $c => $l):
             ?>
