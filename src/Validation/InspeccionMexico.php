@@ -348,8 +348,8 @@ final class InspeccionMexico
     }
 
     /**
-     * Pares oficiales DIÁMETRO VOLANTE (cm) — lista fija del select.
-     * La holgura es campo abierto independiente (ver HOLGURA_CM_MIN/MAX).
+     * Pares oficiales DIÁMETRO VOLANTE (cm) → holgura de referencia (tabla CESDIA).
+     * Al capturar, la holgura se escala al rango permitido 7–9 cm (HOLGURA_CM_MIN/MAX).
      *
      * @var list<array{0:float,1:float}>
      */
@@ -362,7 +362,12 @@ final class InspeccionMexico
         [55.8, 14.6],
     ];
 
-    /** Holgura hidráulica (cm): campo abierto. */
+    /** Extremos de holgura en la tabla oficial (antes de escalar a 7–9 cm). */
+    private const HOLGURA_REF_MIN = 10.8;
+
+    private const HOLGURA_REF_MAX = 14.6;
+
+    /** Holgura hidráulica (cm): rango de captura. */
     public const HOLGURA_CM_MIN = 7.0;
 
     public const HOLGURA_CM_MAX = 9.0;
@@ -399,7 +404,56 @@ final class InspeccionMexico
     }
 
     /**
-     * Par aleatorio para valores predeterminados (volante de lista; holgura en rango abierto).
+     * Escala holgura de la tabla oficial al rango de captura 7–9 cm.
+     */
+    public static function holguraCmDesdeReferenciaOficial(float $holguraReferencia): string
+    {
+        $rangoRef = self::HOLGURA_REF_MAX - self::HOLGURA_REF_MIN;
+        $scaled = self::HOLGURA_CM_MIN;
+        if ($rangoRef > 0) {
+            $scaled += ($holguraReferencia - self::HOLGURA_REF_MIN)
+                / $rangoRef
+                * (self::HOLGURA_CM_MAX - self::HOLGURA_CM_MIN);
+        }
+
+        return self::normalizarHolguraCm($scaled);
+    }
+
+    /**
+     * Holgura (7–9 cm) correspondiente al diámetro de volante seleccionado.
+     */
+    public static function holguraCmParaVolante(mixed $volante): string
+    {
+        if ($volante === null || $volante === '') {
+            return self::fmtCm(self::HOLGURA_CM_DEFAULT);
+        }
+        $key = self::fmtCm($volante);
+        foreach (self::PARES_VOLANTE_HOLGURA as [$v, $hRef]) {
+            if (self::fmtCm($v) === $key) {
+                return self::holguraCmDesdeReferenciaOficial($hRef);
+            }
+        }
+
+        return self::fmtCm(self::HOLGURA_CM_DEFAULT);
+    }
+
+    /**
+     * Mapa volante (cm) => holgura (cm) para sincronizar el formulario.
+     *
+     * @return array<string, string>
+     */
+    public static function mapaHolguraPorVolanteCm(): array
+    {
+        $out = [];
+        foreach (self::PARES_VOLANTE_HOLGURA as [$v, $hRef]) {
+            $out[self::fmtCm($v)] = self::holguraCmDesdeReferenciaOficial($hRef);
+        }
+
+        return $out;
+    }
+
+    /**
+     * Par aleatorio para valores predeterminados (volante + holgura acoplada).
      *
      * @return array{volante:string, holgura:string}
      */
@@ -410,7 +464,7 @@ final class InspeccionMexico
 
         return [
             'volante' => self::fmtCm($pick[0]),
-            'holgura' => self::fmtCm(self::HOLGURA_CM_DEFAULT),
+            'holgura' => self::holguraCmDesdeReferenciaOficial($pick[1]),
         ];
     }
 
@@ -458,7 +512,7 @@ final class InspeccionMexico
     }
 
     /**
-     * Volante (lista) y holgura (7–9) son independientes.
+     * Volante (lista) y holgura (7–9): ambos deben ser válidos por separado.
      */
     public static function esParVolanteHolguraValido(mixed $volante, mixed $holgura): bool
     {

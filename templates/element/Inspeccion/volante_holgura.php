@@ -1,6 +1,7 @@
 <?php
 /**
- * Diámetro de volante (select) + holgura hidráulica abierta 7–9 cm.
+ * Diámetro de volante (select) + holgura hidráulica 7–9 cm.
+ * Al cambiar el volante, la holgura se ajusta al valor acoplado (rango permitido).
  * Usado en alta/edición de formatos motrices (F-17 / F-18 / F-21).
  *
  * @var \App\View\AppView $this
@@ -40,17 +41,41 @@ $holVal = InspeccionMexico::normalizarHolguraCm($inspeccion->holgura_cm ?? null)
 </div>
 <script>
 (function () {
-  if (window.__cesdiaHolguraClamp) return;
-  window.__cesdiaHolguraClamp = true;
+  if (window.__cesdiaVolanteHolguraInit) return;
+  window.__cesdiaVolanteHolguraInit = true;
+
+  var MAP = <?= json_encode(InspeccionMexico::mapaHolguraPorVolanteCm(), JSON_HEX_TAG | JSON_HEX_APOS) ?>;
   var MIN = <?= json_encode((float)InspeccionMexico::HOLGURA_CM_MIN) ?>;
   var MAX = <?= json_encode((float)InspeccionMexico::HOLGURA_CM_MAX) ?>;
+
+  function clampHolgura(raw) {
+    var n = parseFloat(raw);
+    if (raw === '' || isNaN(n)) return raw;
+    if (n < MIN) n = MIN;
+    if (n > MAX) n = MAX;
+    return String(Math.round(n * 10) / 10);
+  }
+
+  function syncHolguraDesdeVolante() {
+    var vol = document.getElementById('cesdia-volante-cm');
+    var hol = document.getElementById('cesdia-holgura-cm');
+    if (!vol || !hol || vol.value === '') return;
+    var mapped = MAP[vol.value];
+    if (mapped !== undefined && mapped !== null) {
+      hol.value = mapped;
+    }
+  }
+
   document.addEventListener('change', function (e) {
     var t = e.target;
-    if (!t || t.id !== 'cesdia-holgura-cm') return;
-    var n = parseFloat(t.value);
-    if (t.value === '' || isNaN(n)) return;
-    if (n < MIN) t.value = String(MIN);
-    if (n > MAX) t.value = String(MAX);
+    if (!t) return;
+    if (t.id === 'cesdia-volante-cm') {
+      syncHolguraDesdeVolante();
+      return;
+    }
+    if (t.id === 'cesdia-holgura-cm') {
+      t.value = clampHolgura(t.value);
+    }
   });
 })();
 </script>

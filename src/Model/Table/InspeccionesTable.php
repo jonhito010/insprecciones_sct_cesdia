@@ -282,7 +282,7 @@ class InspeccionesTable extends Table
                         (int)InspeccionMexico::HOLGURA_CM_MAX
                     ),
                 ]);
-            // Volante (lista) y holgura (abierta 7–9) se validan por separado.
+            // Volante (lista) y holgura (7–9 cm acoplada al volante en captura).
         }
 
         foreach (InspeccionMexico::CAMPOS_VARILLA_MM as $campo) {
