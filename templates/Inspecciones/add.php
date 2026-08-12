@@ -1,6 +1,7 @@
 <?php
 use App\Model\Table\VehiculosTable;
 use App\Validation\InspeccionMexico;
+use App\Validation\Nom068Formato;
 use App\Validation\TipoVehiculoRequisitos;
 
 /**
@@ -34,12 +35,14 @@ use App\Validation\TipoVehiculoRequisitos;
 $esEdicion = isset($inspeccion->id);
 $tipoFormulario = $tipoFormulario ?? ($inspeccion->tipo_formulario ?? 'F17_TRACTO');
 $this->assign('title', $esEdicion ? 'Editar Inspección' : 'Nueva Inspección');
+$this->Html->css('https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css', ['block' => true]);
 $vehiculo = $inspeccion->vehiculo ?? null;
 $propietario = $vehiculo ? ($vehiculo->propietario ?? null) : null;
-$marcasOpts = $marcasVehiculo ?? [];
+// Select2 AJAX: solo incluir la marca actual (si hay) para no cargar miles de opciones.
+$marcasOpts = [];
 $marcaActual = $vehiculo ? (string)($vehiculo->marca ?? '') : '';
-if ($marcaActual !== '' && !isset($marcasOpts[$marcaActual])) {
-    $marcasOpts = [$marcaActual => $marcaActual] + $marcasOpts;
+if ($marcaActual !== '') {
+    $marcasOpts[$marcaActual] = $marcaActual;
 }
 $estadosOpts = $estadosMexico ?? [];
 $estProp = $propietario ? (string)($propietario->estado ?? '') : '';
@@ -94,17 +97,16 @@ if ($folioRaw !== '' && preg_match('/^([AaMm])(.*)$/u', $folioRaw, $m)) {
 $folioEsMotrizIni = $folioRaw !== '' && strtoupper($folioRaw[0]) === 'M';
 $mostrarOdometroIni = !empty($inspeccionTieneOdometro) && $folioEsMotrizIni;
 $folioEsperadoFormulario = TipoVehiculoRequisitos::folioEsperadoPorFormulario((string)$tipoFormulario);
-// BUG-2: en alta, catálogo completo según folio (M→T2,T3,C2,C3,AB; A→S2,S3,D1,D2).
-// En edición se mantiene el filtro del formulario actual para no mezclar checklists.
-$tiposVehiculoOpts = (!$esEdicion && $folioEsperadoFormulario !== null)
-    ? TipoVehiculoRequisitos::etiquetasSelectPorPrefijoFolio($folioEsperadoFormulario)
-    : TipoVehiculoRequisitos::etiquetasSelectPorFormulario($tipoFormulario);
+// Solo tipos del formulario elegido (F-17→T2/T3; F-18→C2L/C2L6/C2/C3; etc.).
+$tiposVehiculoOpts = TipoVehiculoRequisitos::etiquetasSelectPorFormulario($tipoFormulario);
 $tipoVehActual = $vehiculo ? (string)($vehiculo->tipo_vehiculo ?? '') : '';
 // Conserva el tipo guardado aunque no pertenezca a la lista filtrada (ediciones antiguas).
 if ($tipoVehActual !== '' && !isset($tiposVehiculoOpts[$tipoVehActual])) {
     $etiquetasTodas = TipoVehiculoRequisitos::etiquetasSelect();
     $tiposVehiculoOpts = [$tipoVehActual => $etiquetasTodas[$tipoVehActual] ?? $tipoVehActual] + $tiposVehiculoOpts;
 }
+// Tipos del formulario actual (para JS: no mezclar F-18/F-21 al estar en F-17).
+$tiposDelFormularioJson = TipoVehiculoRequisitos::tiposVehiculoPorFormulario((string)$tipoFormulario);
 $tiposVehiculoPorFolioJson = [
     'M' => TipoVehiculoRequisitos::codigosConCombustible(),
     'A' => TipoVehiculoRequisitos::codigosArrastre(),
@@ -231,22 +233,7 @@ if (!$esEdicion && $folioTipoIni === '' && $folioEsperadoFormulario !== null) {
           $mostrarVolanteHolgura = !empty($inspeccionTieneVolanteHolgura) && $esMotrizForm;
         ?>
         <?php if ($mostrarVolanteHolgura) : ?>
-        <div id="cesdia-wrap-volante-holgura" style="margin-top:10px;display:grid;grid-template-columns:1fr 1fr;gap:10px;">
-          <?= $this->Form->control('volante_cm', [
-            'label' => ['text' => 'VOLANTE (cm)', 'class' => 'cesdia-label'],
-            'type' => 'number',
-            'step' => '0.01',
-            'min' => 0,
-            'class' => 'cesdia-input' . $df,
-          ]) ?>
-          <?= $this->Form->control('holgura_cm', [
-            'label' => ['text' => 'HOLGURA (cm)', 'class' => 'cesdia-label'],
-            'type' => 'number',
-            'step' => '0.01',
-            'min' => 0,
-            'class' => 'cesdia-input' . $df,
-          ]) ?>
-        </div>
+          <?= $this->element('Inspeccion/volante_holgura', ['df' => $df ?? '']) ?>
         <?php endif; ?>
       </div>
       <div class="cesdia-form-group">
@@ -311,12 +298,13 @@ if (!$esEdicion && $folioTipoIni === '' && $folioEsperadoFormulario !== null) {
           'label' => ['text' => 'Equipo con que se inspecciona', 'class' => 'cesdia-label'],
           'type' => 'text',
           'class' => 'cesdia-input',
+          'id' => 'cesdia-tecnico-numero-equipo',
           'maxlength' => 25,
           'value' => $tecnicoNumeroEquipo ?? '',
           'required' => true,
           'placeholder' => 'Número de equipo del operador',
         ]) ?>
-        <p style="font-size:11px;color:var(--gmuted);margin:4px 0 0;">Se imprime en F-04 y en el encabezado de la lista; debe coincidir con la firma del prestador.</p>
+        <p style="font-size:11px;color:var(--gmuted);margin:4px 0 0;">Se llena al elegir el técnico; se imprime en F-04 y en el encabezado de la lista.</p>
       </div>
       <div class="cesdia-form-group">
         <?= $this->Form->control('vehiculo_presentado', [
@@ -348,42 +336,86 @@ if (!$esEdicion && $folioTipoIni === '' && $folioEsperadoFormulario !== null) {
           <?php foreach ($tiposVehiculoOpts as $codTipo => $etiqTipo) :
               $catTipo = TipoVehiculoRequisitos::categoriaCodigo((string)$codTipo);
               $formTipoOpt = TipoVehiculoRequisitos::formularioPorTipoVehiculo((string)$codTipo);
+              $defTipoOpt = TipoVehiculoRequisitos::definicion((string)$codTipo);
+              $nLlantasOpt = $defTipoOpt !== null ? (int)$defTipoOpt['llantas'] : 0;
+              $etiqConLlantas = $etiqTipo . ($nLlantasOpt > 0 ? (' — ' . $nLlantasOpt . ' llanta' . ($nLlantasOpt === 1 ? '' : 's')) : '');
               ?>
           <option value="<?= h($codTipo) ?>"
             data-cesdia-clase="<?= h($catTipo ?? '') ?>"
             data-cesdia-formulario="<?= h($formTipoOpt) ?>"
-            <?= $tipoVehActual === (string)$codTipo ? ' selected' : '' ?>><?= h($etiqTipo) ?></option>
+            data-cesdia-llantas="<?= (int)$nLlantasOpt ?>"
+            <?= $tipoVehActual === (string)$codTipo ? ' selected' : '' ?>><?= h($etiqConLlantas) ?></option>
           <?php endforeach; ?>
         </select>
         <p id="cesdia-tipo-vehiculo-hint" class="cesdia-tipo-vehiculo-hint" style="display:none;margin:0.35rem 0 0;font-size:12px;color:var(--gmuted)"></p>
-        <p id="cesdia-formulario-badge" style="display:none;margin:0.4rem 0 0;font-size:11px;font-weight:700;padding:2px 8px;border-radius:4px"></p>
+        <?php
+        $badgeIniTipo = strtoupper(trim($tipoVehActual));
+        $badgeIniMeta = match ($badgeIniTipo) {
+            'T2', 'T3', 'TC' => ['F-17 Tracto', '#1d4ed8', '#dbeafe'],
+            'C2L', 'C2L6', 'C2', 'C3' => ['F-18 Camión', '#7e22ce', '#f3e8ff'],
+            'S1', 'S2', 'S3', 'S4', 'RQ' => ['F-19 Remolque', '#b45309', '#fef3c7'],
+            'D1', 'D2', 'DL' => ['F-20 Dolly', '#0f766e', '#ccfbf1'],
+            'B2' => ['F-21 Autobús B2', '#b91c1c', '#fee2e2'],
+            'B3', 'AB', 'BUS' => ['F-21 Autobús B3', '#b91c1c', '#fee2e2'],
+            default => null,
+        };
+        $badgeIniLl = $badgeIniTipo !== '' ? (TipoVehiculoRequisitos::definicion($badgeIniTipo)['llantas'] ?? 0) : 0;
+        $badgeIniTxt = '';
+        $badgeIniStyle = 'display:none;margin:0.4rem 0 0;font-size:11px;font-weight:700;padding:2px 8px;border-radius:4px';
+        if ($badgeIniMeta !== null) {
+            $badgeIniTxt = 'Formulario: ' . $badgeIniMeta[0];
+            if ((int)$badgeIniLl > 0) {
+                $badgeIniTxt .= ' · ' . (int)$badgeIniLl . ' llanta' . ((int)$badgeIniLl === 1 ? '' : 's');
+            }
+            $badgeIniStyle = 'display:inline-block;margin:0.4rem 0 0;font-size:11px;font-weight:700;padding:2px 8px;border-radius:4px'
+                . ';color:' . $badgeIniMeta[1] . ';background:' . $badgeIniMeta[2];
+        }
+        ?>
+        <p id="cesdia-formulario-badge" style="<?= h($badgeIniStyle) ?>"><?= h($badgeIniTxt) ?></p>
       </div>
       <?php if (!empty($vehiculoTieneEjes)) : ?>
-      <div class="cesdia-form-group">
-        <?= $this->Form->control('vehiculo.ejes', [
-          'label' => ['text' => 'Número de ejes', 'class' => 'cesdia-label'],
-          'type' => 'number',
-          'min' => 1,
-          'max' => 6,
-          'step' => 1,
-          'class' => 'cesdia-input' . $df,
+        <?= $this->Form->hidden('vehiculo.ejes', [
           'id' => 'cesdia-vehiculo-ejes',
           'value' => $ejesValorVista,
         ]) ?>
-        <p style="font-size:12px;color:var(--gmuted);margin:0.35rem 0 0;">Se ajusta al elegir el tipo (D1→1, D2→2, T2→2, T3→3, S2→2, S3→3).</p>
-      </div>
       <?php endif; ?>
       <div class="cesdia-form-group">
         <?= $this->Form->control('vehiculo.placas', ['label' => ['text' => 'Placas', 'class' => 'cesdia-label'], 'class' => 'cesdia-input', 'value' => $vehiculo ? ($vehiculo->placas ?? '') : '']) ?>
       </div>
       <div class="cesdia-form-group">
-        <?= $this->Form->control('vehiculo.niv', ['label' => ['text' => 'NIV', 'class' => 'cesdia-label'], 'class' => 'cesdia-input', 'maxlength' => 17, 'value' => $vehiculo ? ($vehiculo->niv ?? '') : '']) ?>
+        <?= $this->Form->control('vehiculo.niv', [
+          'label' => ['text' => 'NIV', 'class' => 'cesdia-label'],
+          'class' => 'cesdia-input',
+          'id' => 'cesdia-vehiculo-niv',
+          'minlength' => 5,
+          'maxlength' => 17,
+          'autocomplete' => 'off',
+          'value' => $vehiculo ? ($vehiculo->niv ?? '') : '',
+        ]) ?>
+        <p id="cesdia-niv-hint" style="margin:0.35rem 0 0;font-size:12px;color:var(--gmuted);">
+          Entre 5 y 17 caracteres; sin letras I, O ni Q. Confirme la nomenclatura en el modal al terminar.
+        </p>
       </div>
       <div class="cesdia-form-group">
-        <?= $this->Form->control('vehiculo.folio_tc', ['label' => ['text' => 'Folio TC', 'class' => 'cesdia-label'], 'class' => 'cesdia-input', 'value' => $vehiculo ? ($vehiculo->folio_tc ?? '') : '']) ?>
+        <?= $this->Form->control('vehiculo.folio_tc', ['label' => ['text' => 'Folio TC', 'class' => 'cesdia-label'], 'class' => 'cesdia-input', 'required' => true, 'maxlength' => 40, 'value' => $vehiculo ? ($vehiculo->folio_tc ?? '') : '']) ?>
       </div>
       <div class="cesdia-form-group">
-        <?= $this->Form->control('vehiculo.marca', ['label' => ['text' => 'Marca', 'class' => 'cesdia-label'], 'options' => $marcasOpts, 'empty' => '-- Marca --', 'class' => 'cesdia-select', 'value' => $vehiculo ? ($vehiculo->marca ?? '') : '']) ?>
+        <div class="cesdia-label-with-action">
+          <label class="cesdia-label" for="vehiculo-marca">Marca</label>
+          <button type="button" class="btn-cesdia btn-cesdia-secondary btn-cesdia-sm" id="cesdia-btn-nueva-marca" title="Registrar nueva marca">
+            <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v10M3 8h10"/></svg>
+            Nueva
+          </button>
+        </div>
+        <?= $this->Form->control('vehiculo.marca', [
+          'label' => false,
+          'id' => 'vehiculo-marca',
+          'options' => $marcasOpts,
+          'empty' => '',
+          'class' => 'cesdia-select cesdia-select2-marca',
+          'value' => $marcaActual,
+          'style' => 'width:100%',
+        ]) ?>
       </div>
       <div class="cesdia-form-group">
         <?= $this->Form->control('vehiculo.anio', ['label' => ['text' => 'Año', 'class' => 'cesdia-label'], 'class' => 'cesdia-input' . $df, 'value' => $vehiculo ? ($vehiculo->anio ?? date('Y')) : date('Y')]) ?>
@@ -487,7 +519,21 @@ if (!$esEdicion && $folioTipoIni === '' && $folioEsperadoFormulario !== null) {
             ]) ?>
           </div>
           <div class="cesdia-form-group">
-            <?= $this->Form->control('vehiculo.propietario.codigo_postal', ['label' => ['text' => 'C.P.', 'class' => 'cesdia-label'], 'class' => 'cesdia-input', 'value' => $propietario ? ($propietario->codigo_postal ?? '') : '']) ?>
+            <?= $this->Form->control('vehiculo.propietario.codigo_postal', [
+              'label' => ['text' => 'C.P. (5 dígitos)', 'class' => 'cesdia-label'],
+              'class' => 'cesdia-input cesdia-codigo-postal',
+              'id' => 'cesdia-codigo-postal',
+              'type' => 'text',
+              'inputmode' => 'numeric',
+              'pattern' => '[0-9]{5}',
+              'maxlength' => 5,
+              'minlength' => 5,
+              'autocomplete' => 'postal-code',
+              'placeholder' => 'Ej. 06600',
+              'title' => 'Exactamente 5 dígitos numéricos',
+              'required' => true,
+              'value' => $propietario ? ($propietario->codigo_postal ?? '') : '',
+            ]) ?>
           </div>
           <?php if (!empty($propietarioTieneCorreo)) : ?>
           <div class="cesdia-form-group">
@@ -515,12 +561,12 @@ if (!$esEdicion && $folioTipoIni === '' && $folioEsperadoFormulario !== null) {
       </div>
     </div>
     <div class="cesdia-section" style="margin-top:1rem;">
-      <div class="sec-head"><span class="sec-head-title">Fotografías del vehículo (obligatorias)</span></div>
+      <div class="sec-head"><span class="sec-head-title">Fotografías del vehículo (opcionales)</span></div>
       <div class="sec-body">
         <p style="font-size:13px;color:var(--gmuted);margin:0 0 1rem;">
           <?= $esEdicion
-            ? 'Deben existir dos fotos registradas. Si ya están guardadas, puede dejar los campos vacíos; suba archivos solo para reemplazarlas.'
-            : 'Adjunte dos imágenes del vehículo (JPG, PNG o WebP, máx. 8 MB cada una).' ?>
+            ? 'Las fotos son opcionales. Si ya hay alguna guardada, puede dejar el campo vacío o subir un archivo para reemplazarla.'
+            : 'Puede adjuntar hasta dos imágenes del vehículo (JPG, PNG o WebP, máx. 8 MB cada una). No son obligatorias.' ?>
         </p>
         <div class="cesdia-grid-2" style="gap:1rem;">
           <div class="cesdia-form-group">
@@ -554,37 +600,71 @@ if (!$esEdicion && $folioTipoIni === '' && $folioEsperadoFormulario !== null) {
     </div>
 
     <div class="cesdia-section" style="margin-top:1rem;">
-      <div class="sec-head"><span class="sec-head-title">Documentos adjuntos (opcionales)</span></div>
+      <div class="sec-head"><span class="sec-head-title">Documentos adjuntos (obligatorios)</span></div>
       <div class="sec-body">
+        <p style="margin:0 0 .75rem;padding:.65rem .85rem;border-left:4px solid #b45309;background:#fffbeb;color:#92400e;font-size:13px;line-height:1.45;border-radius:0 6px 6px 0;">
+          <strong>Nota:</strong> estos documentos son <strong>obligatorios</strong> en todos los tipos de inspección (F-17 a F-21). Debe adjuntar ambos para poder guardar.
+        </p>
         <p style="font-size:13px;color:var(--gmuted);margin:0 0 1rem;">
-          Puede adjuntar el dictamen/lista anterior y la tarjeta de circulación o factura (PDF, JPG o PNG, máx. 12 MB).
+          <?= $esEdicion
+            ? 'Si ya están guardados, puede dejar los campos vacíos; suba archivos solo para reemplazarlos (PDF, JPG o PNG, máx. 12 MB).'
+            : 'Adjunte: 1) inspección anterior (dictamen o lista) y 2) tarjeta de circulación o factura (PDF, JPG o PNG, máx. 12 MB).' ?>
         </p>
         <div class="cesdia-grid-2" style="gap:1rem;">
           <div class="cesdia-form-group">
-            <label class="cesdia-label" for="doc-inspeccion-anterior">Inspección anterior (dictamen o lista)</label>
+            <label class="cesdia-label" for="doc-inspeccion-anterior">Inspección anterior (dictamen o lista) * <span style="color:#b45309;font-weight:500;">(obligatorio)</span></label>
             <?php if ($esEdicion && !empty($inspeccion->doc_inspeccion_anterior)) : ?>
               <div style="margin-bottom:.35rem;">
                 <?= $this->Html->link('Abrir archivo actual', $inspeccion->doc_inspeccion_anterior, ['target' => '_blank', 'rel' => 'noopener']) ?>
               </div>
             <?php endif; ?>
             <input type="file" name="doc_inspeccion_anterior" id="doc-inspeccion-anterior" class="cesdia-input"
-              accept="application/pdf,image/jpeg,image/png" />
+              accept="application/pdf,image/jpeg,image/png"
+              <?= (!$esEdicion || empty($inspeccion->doc_inspeccion_anterior)) ? 'required' : '' ?> />
           </div>
           <div class="cesdia-form-group">
-            <label class="cesdia-label" for="doc-tarjeta-factura">Tarjeta de circulación o factura</label>
+            <label class="cesdia-label" for="doc-tarjeta-factura">Tarjeta de circulación o factura * <span style="color:#b45309;font-weight:500;">(obligatorio)</span></label>
             <?php if ($esEdicion && !empty($inspeccion->doc_tarjeta_factura)) : ?>
               <div style="margin-bottom:.35rem;">
                 <?= $this->Html->link('Abrir archivo actual', $inspeccion->doc_tarjeta_factura, ['target' => '_blank', 'rel' => 'noopener']) ?>
               </div>
             <?php endif; ?>
             <input type="file" name="doc_tarjeta_factura" id="doc-tarjeta-factura" class="cesdia-input"
-              accept="application/pdf,image/jpeg,image/png" />
+              accept="application/pdf,image/jpeg,image/png"
+              <?= (!$esEdicion || empty($inspeccion->doc_tarjeta_factura)) ? 'required' : '' ?> />
           </div>
         </div>
       </div>
     </div>
   </div>
 </div>
+<script>
+(function () {
+  document.addEventListener('DOMContentLoaded', function () {
+    var form = document.querySelector('form.needs-validation');
+    if (!form) return;
+    var tieneAnt = <?= ($esEdicion && !empty($inspeccion->doc_inspeccion_anterior)) ? 'true' : 'false' ?>;
+    var tieneTf = <?= ($esEdicion && !empty($inspeccion->doc_tarjeta_factura)) ? 'true' : 'false' ?>;
+    form.addEventListener('submit', function (ev) {
+      var docAnt = document.getElementById('doc-inspeccion-anterior');
+      var docTf = document.getElementById('doc-tarjeta-factura');
+      var antOk = tieneAnt || (docAnt && docAnt.files && docAnt.files.length > 0);
+      var tfOk = tieneTf || (docTf && docTf.files && docTf.files.length > 0);
+      if (!antOk) {
+        ev.preventDefault();
+        window.alert('Debe adjuntar la inspección anterior (dictamen o lista).');
+        if (docAnt) docAnt.focus();
+        return;
+      }
+      if (!tfOk) {
+        ev.preventDefault();
+        window.alert('Debe adjuntar la tarjeta de circulación o factura.');
+        if (docTf) docTf.focus();
+      }
+    });
+  });
+})();
+</script>
 
 <?php
 // Secciones específicas del tipo de formulario (armador por tipo).
@@ -977,6 +1057,31 @@ echo $this->element($armador, [
 <script>
 (function () {
   document.addEventListener('DOMContentLoaded', function () {
+    var tecnicosInfo = <?= json_encode($tecnicosInfo ?? [], JSON_HEX_TAG | JSON_HEX_APOS | JSON_UNESCAPED_UNICODE) ?>;
+    var selTec = document.getElementById('cesdia-tecnico-id');
+    var inpEquipo = document.getElementById('cesdia-tecnico-numero-equipo');
+    if (!selTec || !inpEquipo) {
+      return;
+    }
+    function syncEquipoDesdeTecnico() {
+      var id = String(selTec.value || '').trim();
+      if (!id) {
+        return;
+      }
+      var info = tecnicosInfo[id] || null;
+      inpEquipo.value = info && info.numero_equipo ? String(info.numero_equipo) : '';
+    }
+    if (selTec.tagName === 'SELECT') {
+      selTec.addEventListener('change', syncEquipoDesdeTecnico);
+    }
+    syncEquipoDesdeTecnico();
+  });
+})();
+</script>
+
+<script>
+(function () {
+  document.addEventListener('DOMContentLoaded', function () {
     var h = document.getElementById('cesdia-folio-dictamen-full');
     var tipo = document.getElementById('cesdia-folio-tipo');
     var resto = document.getElementById('cesdia-folio-resto');
@@ -1147,14 +1252,16 @@ echo $this->element($armador, [
 <script>
 (function () {
   var TIPOS_POR_FOLIO = <?= json_encode($tiposVehiculoPorFolioJson, JSON_HEX_TAG | JSON_HEX_APOS | JSON_UNESCAPED_UNICODE) ?>;
+  var TIPOS_DEL_FORMULARIO = <?= json_encode($tiposDelFormularioJson, JSON_HEX_TAG | JSON_HEX_APOS | JSON_UNESCAPED_UNICODE) ?>;
+  var LLANTAS_POR_TIPO = <?= json_encode(TipoVehiculoRequisitos::mapaLlantasPorTipo(), JSON_HEX_TAG | JSON_HEX_APOS | JSON_UNESCAPED_UNICODE) ?>;
   var FORM_POR_TIPO = <?= json_encode($formularioPorTipoJson, JSON_HEX_TAG | JSON_HEX_APOS | JSON_UNESCAPED_UNICODE) ?>;
   var FOLIO_ESPERADO = <?= json_encode($folioEsperadoFormulario, JSON_HEX_TAG | JSON_HEX_APOS | JSON_UNESCAPED_UNICODE) ?>;
   var FORMULARIO_ACTUAL = <?= json_encode((string)$tipoFormulario, JSON_HEX_TAG | JSON_HEX_APOS | JSON_UNESCAPED_UNICODE) ?>;
   var ES_EDICION = <?= $esEdicion ? 'true' : 'false' ?>;
   var URL_ADD_TIPO = <?= json_encode($this->Url->build(['action' => 'add']), JSON_HEX_TAG | JSON_HEX_APOS | JSON_UNESCAPED_UNICODE) ?>;
   var HINTS_FOLIO = {
-    M: 'Dictamen motriz (M): tipos T2, T3, C2, C3 y AB (autobús). Si elige un tipo de otro formulario, se abrirá ese formato.',
-    A: 'Dictamen arrastre (A): tipos S2, S3, D1 y D2. Si elige un tipo de otro formulario, se abrirá ese formato.'
+    M: 'Dictamen motriz (M). Solo se listan los tipos de este formulario.',
+    A: 'Dictamen arrastre (A). Solo se listan los tipos de este formulario.'
   };
   var MSG_INCOMPATIBLE = {
     M: 'No puede usar dictamen A en Tractocamión/Camión/Autobús: no hay tipos de vehículo. Use M, o inicie una inspección Remolque/Dolly.',
@@ -1168,15 +1275,12 @@ echo $this->element($armador, [
     if (!selTipo) {
       return;
     }
-    // BUG-2: restaurar folio tras salto a otro formulario (C2/C3/AB desde F-17, etc.).
+    // Restaurar folio tras salto a otro formulario (ediciones / casos legacy).
     try {
       var folioPend = sessionStorage.getItem('cesdia_folio_pendiente');
       if (folioPend && folioFull) {
         sessionStorage.removeItem('cesdia_folio_pendiente');
         folioFull.value = folioPend;
-        if (typeof window.cesdiaMergeFolioDictamen === 'function') {
-          /* init del otro script ya pudo correr; forzar relectura */
-        }
         if (folioTipo && /^[MmAa]/.test(folioPend)) {
           folioTipo.value = folioPend.charAt(0).toUpperCase();
         }
@@ -1215,7 +1319,12 @@ echo $this->element($armador, [
           window.cesdiaMergeFolioDictamen();
         }
       }
-      var permitidos = pref ? (TIPOS_POR_FOLIO[pref] || null) : null;
+      // Intersección: tipos del formulario actual ∩ permitidos por folio (si hay).
+      var delForm = TIPOS_DEL_FORMULARIO || [];
+      var porFolio = pref ? (TIPOS_POR_FOLIO[pref] || null) : null;
+      var permitidos = delForm.filter(function (cod) {
+        return !porFolio || porFolio.indexOf(cod) !== -1;
+      });
       var opts = selTipo.options;
       var visibles = 0;
       var i;
@@ -1224,7 +1333,11 @@ echo $this->element($armador, [
         if (!opt.value) {
           continue;
         }
-        var ok = !permitidos || permitidos.indexOf(opt.value) !== -1;
+        var ok = permitidos.indexOf(opt.value) !== -1;
+        // Conservar tipo legacy fuera del set (edición) si está seleccionado.
+        if (!ok && ES_EDICION && opt.value === selTipo.value) {
+          ok = true;
+        }
         opt.hidden = !ok;
         opt.disabled = !ok;
         if (ok) {
@@ -1256,22 +1369,34 @@ echo $this->element($armador, [
         'T2': ['F-17 Tracto',   '#1d4ed8', '#dbeafe'],
         'T3': ['F-17 Tracto',   '#1d4ed8', '#dbeafe'],
         'TC': ['F-17 Tracto',   '#1d4ed8', '#dbeafe'],
+        'C2L': ['F-18 Camión',  '#7e22ce', '#f3e8ff'],
+        'C2L6': ['F-18 Camión', '#7e22ce', '#f3e8ff'],
         'C2': ['F-18 Camión',   '#7e22ce', '#f3e8ff'],
         'C3': ['F-18 Camión',   '#7e22ce', '#f3e8ff'],
+        'S1': ['F-19 Remolque', '#b45309', '#fef3c7'],
         'S2': ['F-19 Remolque', '#b45309', '#fef3c7'],
         'S3': ['F-19 Remolque', '#b45309', '#fef3c7'],
+        'S4': ['F-19 Remolque', '#b45309', '#fef3c7'],
         'RQ': ['F-19 Remolque', '#b45309', '#fef3c7'],
         'D1': ['F-20 Dolly',    '#0f766e', '#ccfbf1'],
         'D2': ['F-20 Dolly',    '#0f766e', '#ccfbf1'],
         'DL': ['F-20 Dolly',    '#0f766e', '#ccfbf1'],
-        'AB': ['F-21 Autobús',  '#b91c1c', '#fee2e2'],
+        'B2': ['F-21 Autobús B2', '#b91c1c', '#fee2e2'],
+        'B3': ['F-21 Autobús B3', '#b91c1c', '#fee2e2'],
+        'AB': ['F-21 Autobús B3', '#b91c1c', '#fee2e2'],
         'BUS':['F-21 Autobús',  '#b91c1c', '#fee2e2'],
       };
       var badge = document.getElementById('cesdia-formulario-badge');
       if (badge) {
         var meta = tipo ? (FORM_LABELS[tipo] || null) : null;
         if (meta) {
-          badge.textContent = 'Formulario: ' + meta[0];
+          var llantasMap = LLANTAS_POR_TIPO || window.CESDIA_LLANTAS_POR_TIPO || {};
+          var nLl = llantasMap[tipo] != null ? parseInt(llantasMap[tipo], 10) : 0;
+          var txt = 'Formulario: ' + meta[0];
+          if (nLl > 0) {
+            txt += ' · ' + nLl + ' llanta' + (nLl === 1 ? '' : 's');
+          }
+          badge.textContent = txt;
           badge.style.color = meta[1];
           badge.style.background = meta[2];
           badge.style.display = 'inline-block';
@@ -1362,7 +1487,8 @@ echo $this->element($armador, [
     }
     window.cesdiaSyncEjesDesdeTipoVehiculo = syncEjesDesdeTipo;
     tipo.addEventListener('change', syncEjesDesdeTipo);
-    if ((tipo.value || '').trim() !== '' && (ejes.value || '').trim() === '') {
+    // Campo oculto: siempre derivar ejes del tipo (ya no se captura a mano).
+    if ((tipo.value || '').trim() !== '') {
       syncEjesDesdeTipo();
     }
   });
@@ -1374,6 +1500,12 @@ echo $this->element($armador, [
 (function () {
   window.CESDIA_SLOTS_POR_TIPO = <?= json_encode($slotsPorTipoJson, JSON_HEX_TAG | JSON_HEX_APOS | JSON_UNESCAPED_UNICODE) ?>;
   window.CESDIA_LLANTA_LABELS = <?= json_encode(TipoVehiculoRequisitos::etiquetasLlantas(), JSON_HEX_TAG | JSON_HEX_APOS | JSON_UNESCAPED_UNICODE) ?>;
+  window.CESDIA_POSICION_MOTRIZ = <?= json_encode(TipoVehiculoRequisitos::etiquetasPosicionMotriz(), JSON_HEX_TAG | JSON_HEX_APOS | JSON_UNESCAPED_UNICODE) ?>;
+  window.CESDIA_POSICION_POR_TIPO = <?= json_encode(TipoVehiculoRequisitos::etiquetasPosicionPorTipo(), JSON_HEX_TAG | JSON_HEX_APOS | JSON_UNESCAPED_UNICODE) ?>;
+  window.CESDIA_TIPOS_MOTRIZ = <?= json_encode(TipoVehiculoRequisitos::tiposMotrizLados(), JSON_HEX_TAG | JSON_HEX_APOS | JSON_UNESCAPED_UNICODE) ?>;
+  window.CESDIA_TIPOS_CON_LADOS = <?= json_encode(TipoVehiculoRequisitos::tiposConLadosVisibles(), JSON_HEX_TAG | JSON_HEX_APOS | JSON_UNESCAPED_UNICODE) ?>;
+  window.CESDIA_LLANTAS_POR_TIPO = <?= json_encode(TipoVehiculoRequisitos::mapaLlantasPorTipo(), JSON_HEX_TAG | JSON_HEX_APOS | JSON_UNESCAPED_UNICODE) ?>;
+  window.CESDIA_FILAS_RINES_FORMATO = <?= (int)Nom068Formato::filasTablaComplementaria((string)$tipoFormulario) ?>;
   window.CESDIA_CUMPLE_OPTS = <?= json_encode($cumpleOpts ?? [], JSON_HEX_TAG | JSON_HEX_APOS | JSON_UNESCAPED_UNICODE) ?>;
   window.CESDIA_PROFUNDIDAD_LIMITS = <?= json_encode([
     'minCumple' => InspeccionMexico::PROFUNDIDAD_MIN_CUMPLE_MM,
@@ -1386,6 +1518,16 @@ echo $this->element($armador, [
     'minCumple' => InspeccionMexico::PRESION_MIN_CUMPLE_PSI,
     'maxCumple' => InspeccionMexico::PRESION_MAX_CUMPLE_PSI,
     'maxGeneral' => InspeccionMexico::PRESION_MAX_GENERAL_PSI,
+    'porTipo' => [
+      'C2L' => [
+        'minCumple' => InspeccionMexico::PRESION_MIN_CUMPLE_LIGERO_PSI,
+        'maxCumple' => InspeccionMexico::PRESION_MAX_CUMPLE_LIGERO_PSI,
+      ],
+      'C2L6' => [
+        'minCumple' => InspeccionMexico::PRESION_MIN_CUMPLE_C2L6_PSI,
+        'maxCumple' => InspeccionMexico::PRESION_MAX_CUMPLE_C2L6_PSI,
+      ],
+    ],
   ], JSON_HEX_TAG | JSON_HEX_APOS | JSON_UNESCAPED_UNICODE) ?>;
   document.addEventListener('DOMContentLoaded', function () {
     var tipoSelect = document.getElementById('cesdia-tipo-vehiculo');
@@ -1459,17 +1601,27 @@ echo $this->element($armador, [
       };
     }
 
-    // Valor predeterminado de profundidad: dinámico (varía por llanta) y siempre
-    // dentro del rango que cumple, de modo que no sea el mismo número en todas.
+    // Profundidad (dibujo) predeterminada: dinámica por alta, lógica por eje.
+    // Mismo eje casi igual (±0.2–0.4 mm); ejes vecinos ±0.5–0.8 mm; todo en 5–9 mm.
+    var _profSeed = window.CESDIA_PROF_SEED;
+    if (_profSeed == null || isNaN(_profSeed)) {
+      _profSeed = Math.floor(Math.random() * 1000);
+      window.CESDIA_PROF_SEED = _profSeed;
+    }
     function profundidadDefault(num) {
       var lim = profundidadLimites(num);
       var n = parseInt(num, 10) || 0;
-      var base = lim.esDelantera ? 6 : 11;     // arranque cómodo dentro del rango
-      var variacion = ((n - 1) % 5) * 1.5;     // escalona el valor por número de llanta
-      var v = base + variacion;
+      var eje = Math.max(1, Math.ceil(n / 2));
+      // Base distinta en cada alta (≈6.0–7.5), sin salir del rango cómodo.
+      var base = 6 + ((_profSeed % 16) / 10);           // 6.0 … 7.5
+      var porEje = ((eje + (_profSeed % 3)) % 3) * 0.5; // 0 / 0.5 / 1.0 entre ejes
+      var dual = (n % 2 === 0) ? 0.2 : 0;                // dual del par: leve diferencia
+      var v = base + porEje + dual;
+      if (v < 5) { v = 5; }
+      if (v > 9) { v = 9; }
       if (v < lim.min) { v = lim.min; }
       if (v > lim.max) { v = lim.max; }
-      return Math.round(v * 10) / 10;          // 1 decimal
+      return Math.round(v * 10) / 10;
     }
 
     // Marca automáticamente Cumple / No cumple según la profundidad capturada y
@@ -1531,22 +1683,39 @@ echo $this->element($armador, [
 
     function presionLimites() {
       var L = window.CESDIA_PRESION_LIMITS || {};
+      var tipoEl = document.getElementById('cesdia-tipo-vehiculo');
+      var t = tipoEl ? String(tipoEl.value || '').trim().toUpperCase() : '';
+      var ov = (L.porTipo && t && L.porTipo[t]) ? L.porTipo[t] : null;
       return {
-        min: L.minCumple != null ? L.minCumple : 90,
-        max: L.maxCumple != null ? L.maxCumple : 110,
+        min: ov && ov.minCumple != null ? ov.minCumple : (L.minCumple != null ? L.minCumple : 90),
+        max: ov && ov.maxCumple != null ? ov.maxCumple : (L.maxCumple != null ? L.maxCumple : 110),
         maxGeneral: L.maxGeneral != null ? L.maxGeneral : 200,
       };
     }
 
-    // Valor predeterminado de presión: dinámico (varía por llanta) dentro del
-    // rango que cumple, sin repetir el mismo número en todas.
+    // Presión predeterminada: aleatoria por alta, sin secuencia, llantas
+    // cercanas entre sí (banda estrecha alrededor del centro del rango).
+    var _presSeed = window.CESDIA_PRES_SEED;
+    if (_presSeed == null || isNaN(_presSeed)) {
+      _presSeed = Math.floor(Math.random() * 10000);
+      window.CESDIA_PRES_SEED = _presSeed;
+    }
     function presionDefault(num) {
       var lim = presionLimites();
       var n = parseInt(num, 10) || 0;
-      var v = lim.min + ((n - 1) % 5) * ((lim.max - lim.min) / 5); // escalona dentro del rango
+      var mid = (lim.min + lim.max) / 2;
+      var span = lim.max - lim.min;
+      // Banda estrecha (±1 o ±2 PSI según el rango) para poca diferencia entre llantas.
+      var band = span <= 12 ? 1 : 2;
+      // Base de la sesión cerca del centro (±1).
+      var base = mid + ((_presSeed % 3) - 1);
+      // Jitter por llanta sin patrón ascendente/descendente (−band … +band).
+      var h = ((_presSeed * 17 + n * 41) % 1001) / 1000; // 0…1
+      var v = base + (h - 0.5) * 2 * band;
+      v = Math.round(v);
       if (v < lim.min) { v = lim.min; }
       if (v > lim.max) { v = lim.max; }
-      return Math.round(v);
+      return v;
     }
 
     // Marca automáticamente Cumple / No cumple de la presión según el rango.
@@ -1590,6 +1759,7 @@ echo $this->element($armador, [
       root.querySelectorAll('.cesdia-llanta-fila').forEach(function (row) {
         syncProfundidadFila(row);
         syncPresionFila(row);
+        syncRinArtilleriaFila(row);
       });
     }
 
@@ -1624,6 +1794,14 @@ echo $this->element($armador, [
         var key = String(num) + '|' + String(pos).toUpperCase();
         var labels = window.CESDIA_LLANTA_LABELS || {};
         var titulo = labels[key] || ('Llanta ' + num + ' — ' + pos);
+        var tiposConLado = window.CESDIA_TIPOS_CON_LADOS || window.CESDIA_TIPOS_MOTRIZ || [];
+        var posMotriz = window.CESDIA_POSICION_MOTRIZ || {};
+        var posPorTipo = (window.CESDIA_POSICION_POR_TIPO || {})[tipo] || null;
+        var posVisible = (posPorTipo && posPorTipo[String(num)])
+          ? posPorTipo[String(num)]
+          : ((tiposConLado.indexOf(tipo) !== -1 && posMotriz[String(num)])
+            ? posMotriz[String(num)]
+            : pos);
         var v = prev[key] || {};
         var idH = v.id ? '<input type="hidden" name="inspeccion_llantas[' + i + '][id]" value="' + escAttr(String(v.id)) + '">' : '';
         var profVal = v.profundidad_mm != null && v.profundidad_mm !== ''
@@ -1638,7 +1816,7 @@ echo $this->element($armador, [
         html += '<div class="sec-head"><span class="sec-head-title">' + escHtml(titulo) + '</span></div>';
         html += '<div class="sec-body"><div class="cesdia-llanta-box">';
         html += '<div class="llanta-title"><svg viewBox="0 0 24 24" width="12" height="12"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="4"/></svg> ';
-        html += 'Posición ' + escHtml(pos) + '</div>';
+        html += 'Posición ' + escHtml(posVisible) + '</div>';
         html += '<input type="hidden" name="inspeccion_llantas[' + i + '][numero_llanta]" value="' + num + '">';
         html += '<input type="hidden" name="inspeccion_llantas[' + i + '][posicion]" value="' + escAttr(pos) + '">';
         html += idH;
@@ -1657,18 +1835,50 @@ echo $this->element($armador, [
         html += '<select class="cesdia-select' + inCls + '" name="inspeccion_llantas[' + i + '][banda_rodamiento]">' + cumpleSelectHtml(v.banda_rodamiento) + '</select></div>';
         html += '<div class="cesdia-form-group"><label class="cesdia-label">Costados</label>';
         html += '<select class="cesdia-select' + inCls + '" name="inspeccion_llantas[' + i + '][costados]">' + cumpleSelectHtml(v.costados) + '</select></div>';
-        html += '<div class="cesdia-form-group"><label class="cesdia-label">Rín condición</label>';
-        html += '<select class="cesdia-select' + inCls + '" name="inspeccion_llantas[' + i + '][rin_condicion]">' + cumpleSelectHtml(v.rin_condicion) + '</select></div>';
+        html += '<div class="cesdia-form-group"><label class="cesdia-label">Rin de disco</label>';
+        var rinDiscoSel = (v.rin_condicion !== undefined && v.rin_condicion !== null && v.rin_condicion !== '')
+          ? v.rin_condicion
+          : 'CUMPLE';
+        var artSel = (String(rinDiscoSel).toUpperCase() === 'CUMPLE')
+          ? 'N/A'
+          : ((v.rin_artilleria !== undefined && v.rin_artilleria !== null && v.rin_artilleria !== '')
+            ? v.rin_artilleria
+            : 'CUMPLE');
+        html += '<select class="cesdia-select cesdia-rin-disco' + inCls + '" name="inspeccion_llantas[' + i + '][rin_condicion]">' + cumpleSelectHtml(rinDiscoSel) + '</select></div>';
         html += '<div class="cesdia-form-group"><label class="cesdia-label">SUJETADORES, TUERCAS BIRLOS</label>';
         html += '<select class="cesdia-select' + inCls + '" name="inspeccion_llantas[' + i + '][rin_sujetadores]">' + cumpleSelectHtml(v.rin_sujetadores) + '</select></div>';
         if (['D1', 'D2', 'DL'].indexOf(tipo) === -1) {
           html += '<div class="cesdia-form-group"><label class="cesdia-label">RIN DE ARTILLERIA, PIEZAS MULTIPLES, CONDICION, ABRAZADERAS, ANILLOS DE SEGURIDAD</label>';
-          html += '<select class="cesdia-select' + inCls + '" name="inspeccion_llantas[' + i + '][rin_artilleria]">' + cumpleSelectHtml(v.rin_artilleria) + '</select></div>';
+          html += '<select class="cesdia-select cesdia-rin-artilleria' + inCls + '" name="inspeccion_llantas[' + i + '][rin_artilleria]">' + cumpleSelectHtml(artSel) + '</select></div>';
         }
         html += '</div></div></div></div>';
       });
       root.innerHTML = html;
       aplicarProfundidadTodas();
+      root.querySelectorAll('.cesdia-llanta-fila').forEach(syncRinArtilleriaFila);
+    }
+
+    function syncRinArtilleriaFila(row) {
+      if (!row) {
+        return;
+      }
+      var disco = row.querySelector('select[name*="[rin_condicion]"]');
+      var art = row.querySelector('select[name*="[rin_artilleria]"]');
+      if (!disco || !art) {
+        return;
+      }
+      if (String(disco.value || '').toUpperCase() === 'CUMPLE') {
+        if (selTieneOpcion(art, 'N/A')) {
+          art.value = 'N/A';
+        }
+        art.setAttribute('data-locked', '1');
+        art.style.pointerEvents = 'none';
+        art.style.opacity = '0.75';
+      } else {
+        art.removeAttribute('data-locked');
+        art.style.pointerEvents = '';
+        art.style.opacity = '';
+      }
     }
 
     // Al capturar la profundidad se determina automáticamente Cumple / No cumple
@@ -1685,9 +1895,34 @@ echo $this->element($armador, [
       }
     });
 
+    root.addEventListener('change', function (ev) {
+      var el = ev.target;
+      if (!el || !el.matches) {
+        return;
+      }
+      if (el.matches('select[name*="[rin_condicion]"]')) {
+        syncRinArtilleriaFila(el.closest('.cesdia-llanta-fila'));
+      }
+    });
+
     if (tipoSelect && root.getAttribute('data-t2-legacy') !== '1') {
       tipoSelect.addEventListener('change', function () {
-        renderLlantas(tipoSelect.value);
+        var tipo = tipoSelect.value;
+        renderLlantas(tipo);
+        // Con predeterminados: reinyectar presión al rango del tipo (C2L → 40–50; C2L6 → 60–70).
+        if (defaultsActivos()) {
+          root.querySelectorAll('.cesdia-llanta-fila').forEach(function (row) {
+            var num = row.getAttribute('data-num');
+            var pres = row.querySelector('input[name*="[presion_psi]"]');
+            if (pres) {
+              pres.value = String(presionDefault(num));
+              syncPresionFila(row);
+            }
+          });
+        }
+        if (typeof window.cesdiaRenderRines === 'function') {
+          window.cesdiaRenderRines(tipo);
+        }
       });
     }
 
@@ -1726,3 +1961,351 @@ echo $this->element($armador, [
 </script>
 
 <?= $this->Form->end() ?>
+
+<?= $this->element('codigo_postal_input_js') ?>
+
+<!-- Modal confirmación NIV -->
+<div id="cesdia-niv-modal" hidden style="position:fixed;inset:0;z-index:1000;display:none;align-items:center;justify-content:center;background:rgba(15,23,42,.45);padding:16px;">
+  <div role="dialog" aria-modal="true" aria-labelledby="cesdia-niv-modal-title" style="background:#fff;border-radius:12px;max-width:480px;width:100%;padding:1.25rem 1.35rem;box-shadow:0 20px 50px rgba(0,0,0,.18);">
+    <h2 id="cesdia-niv-modal-title" style="margin:0 0 0.5rem;font-size:1.1rem;">Confirme el NIV</h2>
+    <p style="margin:0 0 0.75rem;font-size:13px;color:var(--gmuted);">Verifique que la nomenclatura sea correcta (entre 5 y 17 caracteres, sin I, O ni Q).</p>
+    <p id="cesdia-niv-modal-valor" style="margin:0 0 0.75rem;font-size:1.75rem;letter-spacing:0.12em;font-weight:700;text-align:center;word-break:break-all;font-family:ui-monospace,monospace;"></p>
+    <p id="cesdia-niv-modal-error" style="display:none;margin:0 0 0.75rem;font-size:12px;color:#b30000;"></p>
+    <div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;">
+      <button type="button" id="cesdia-niv-modal-corregir" class="btn-cesdia btn-cesdia-secondary">Corregir</button>
+      <button type="button" id="cesdia-niv-modal-confirmar" class="btn-cesdia btn-cesdia-primary">Confirmar</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  document.addEventListener('DOMContentLoaded', function () {
+    var niv = document.getElementById('cesdia-vehiculo-niv');
+    var modal = document.getElementById('cesdia-niv-modal');
+    var modalVal = document.getElementById('cesdia-niv-modal-valor');
+    var modalErr = document.getElementById('cesdia-niv-modal-error');
+    var btnOk = document.getElementById('cesdia-niv-modal-confirmar');
+    var btnFix = document.getElementById('cesdia-niv-modal-corregir');
+    var form = niv ? niv.form : null;
+
+    function normNiv(v) {
+      return String(v || '').toUpperCase().replace(/\s+/g, '');
+    }
+    function nivFormatoOk(v) {
+      return /^[A-HJ-NPR-Z0-9]{5,17}$/.test(v);
+    }
+
+    // En edición, el NIV ya guardado se considera confirmado hasta que cambie.
+    var nivConfirmado = niv ? normNiv(niv.value) : '';
+
+    function abrirModalNiv(valor) {
+      if (!modal || !modalVal) return;
+      modalVal.textContent = valor;
+      if (modalErr) {
+        if (!nivFormatoOk(valor)) {
+          modalErr.style.display = '';
+          modalErr.textContent = 'Formato inválido: se requieren entre 5 y 17 caracteres sin I, O ni Q.';
+          if (btnOk) btnOk.disabled = true;
+        } else {
+          modalErr.style.display = 'none';
+          modalErr.textContent = '';
+          if (btnOk) btnOk.disabled = false;
+        }
+      }
+      modal.hidden = false;
+      modal.style.display = 'flex';
+    }
+    function cerrarModalNiv() {
+      if (!modal) return;
+      modal.hidden = true;
+      modal.style.display = 'none';
+    }
+    function intentarModalNiv(forzar) {
+      if (!niv || niv.disabled || niv.readOnly) return;
+      var v = normNiv(niv.value);
+      if (v === '') return;
+      if (v === nivConfirmado) return;
+      if (!forzar && v.length < 5) return;
+      if (v.length > 17) {
+        v = v.slice(0, 17);
+        niv.value = v;
+      }
+      abrirModalNiv(v);
+    }
+
+    if (niv) {
+      niv.addEventListener('input', function () {
+        var v = normNiv(niv.value);
+        if (v !== niv.value) {
+          niv.value = v;
+        }
+        if (v !== nivConfirmado) {
+          nivConfirmado = '';
+        }
+        if (v.length === 17) {
+          intentarModalNiv(false);
+        }
+      });
+      niv.addEventListener('blur', function () {
+        setTimeout(function () { intentarModalNiv(true); }, 120);
+      });
+    }
+    if (btnOk) {
+      btnOk.addEventListener('click', function () {
+        var v = modalVal ? normNiv(modalVal.textContent) : '';
+        if (!nivFormatoOk(v)) return;
+        nivConfirmado = v;
+        if (niv) niv.value = v;
+        cerrarModalNiv();
+      });
+    }
+    if (btnFix) {
+      btnFix.addEventListener('click', function () {
+        cerrarModalNiv();
+        if (niv) {
+          niv.focus();
+          niv.select();
+        }
+      });
+    }
+    if (form) {
+      form.addEventListener('submit', function (ev) {
+        if (!niv || niv.disabled || niv.readOnly) return;
+        var v = normNiv(niv.value);
+        if (v === '') return;
+        if (v === nivConfirmado && nivFormatoOk(v)) return;
+        ev.preventDefault();
+        ev.stopPropagation();
+        intentarModalNiv(true);
+      });
+    }
+  });
+})();
+</script>
+
+<!-- Modal: registrar marca de vehículo -->
+<div class="cesdia-modal" id="cesdia-modal-marca" hidden aria-hidden="true">
+  <div class="cesdia-modal__backdrop" data-cesdia-modal-close></div>
+  <div class="cesdia-modal__dialog" role="dialog" aria-modal="true" aria-labelledby="cesdia-modal-marca-title">
+    <div class="cesdia-modal__header">
+      <h3 class="cesdia-modal__title" id="cesdia-modal-marca-title">Registrar marca</h3>
+      <button type="button" class="cesdia-modal__close" data-cesdia-modal-close aria-label="Cerrar">
+        <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+          <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/>
+        </svg>
+      </button>
+    </div>
+    <div class="cesdia-modal__body">
+      <div class="cesdia-form-group" style="margin-bottom:0;">
+        <label class="cesdia-label" for="cesdia-nueva-marca-input">Nombre de la marca</label>
+        <input type="text" id="cesdia-nueva-marca-input" class="cesdia-input" maxlength="80" autocomplete="off" placeholder="Ej. FREIGHTLINER" />
+        <p class="cesdia-field-error" id="cesdia-nueva-marca-error" hidden></p>
+      </div>
+    </div>
+    <div class="cesdia-modal__footer">
+      <button type="button" class="btn-cesdia btn-cesdia-secondary" data-cesdia-modal-close>Cancelar</button>
+      <button type="button" class="btn-cesdia btn-cesdia-primary" id="cesdia-nueva-marca-guardar">Guardar y seleccionar</button>
+    </div>
+  </div>
+</div>
+
+<?php $this->start('script'); ?>
+<script src="https://cdn.jsdelivr.net/npm/jquery@3.7.1/dist/jquery.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
+<script>
+(function () {
+  var urlBuscar = <?= json_encode($this->Url->build('/inspecciones/buscar-marca'), JSON_HEX_TAG | JSON_HEX_APOS | JSON_UNESCAPED_UNICODE) ?>;
+  var urlAgregar = <?= json_encode($this->Url->build('/inspecciones/agregar-marca'), JSON_HEX_TAG | JSON_HEX_APOS | JSON_UNESCAPED_UNICODE) ?>;
+  var $select = $('#vehiculo-marca');
+  if (!$select.length) {
+    return;
+  }
+
+  $select.select2({
+    width: '100%',
+    placeholder: 'Escriba para buscar una marca…',
+    allowClear: true,
+    minimumInputLength: 1,
+    language: {
+      inputTooShort: function () { return 'Escriba al menos 1 carácter'; },
+      searching: function () { return 'Buscando…'; },
+      noResults: function () { return 'Sin resultados'; },
+      errorLoading: function () { return 'Error al cargar'; },
+      removeAllItems: function () { return 'Quitar'; }
+    },
+    ajax: {
+      url: urlBuscar,
+      dataType: 'json',
+      delay: 250,
+      data: function (params) {
+        return { q: params.term || '' };
+      },
+      processResults: function (data) {
+        return { results: (data && data.results) ? data.results : [] };
+      },
+      cache: true
+    }
+  });
+
+  var btnOpen = document.getElementById('cesdia-btn-nueva-marca');
+  var modal = document.getElementById('cesdia-modal-marca');
+  var input = document.getElementById('cesdia-nueva-marca-input');
+  var errEl = document.getElementById('cesdia-nueva-marca-error');
+  var btnSave = document.getElementById('cesdia-nueva-marca-guardar');
+  if (!btnOpen || !modal || !input || !btnSave) {
+    return;
+  }
+
+  function csrfToken() {
+    var el = document.querySelector('input[name="_csrfToken"]');
+    return el ? String(el.value || '') : '';
+  }
+
+  function showError(msg) {
+    if (!errEl) {
+      return;
+    }
+    if (!msg) {
+      errEl.hidden = true;
+      errEl.textContent = '';
+      return;
+    }
+    errEl.hidden = false;
+    errEl.textContent = msg;
+  }
+
+  function openModal() {
+    showError('');
+    input.value = '';
+    modal.hidden = false;
+    modal.setAttribute('aria-hidden', 'false');
+    document.body.classList.add('cesdia-modal-open');
+    setTimeout(function () { input.focus(); }, 30);
+  }
+
+  function closeModal() {
+    modal.hidden = true;
+    modal.setAttribute('aria-hidden', 'true');
+    document.body.classList.remove('cesdia-modal-open');
+    showError('');
+    btnOpen.focus();
+  }
+
+  function seleccionarMarca(marca) {
+    var val = String(marca || '').toUpperCase();
+    if (!val) {
+      return;
+    }
+    if ($select.find('option').filter(function () {
+      return String(this.value).toUpperCase() === val;
+    }).length === 0) {
+      $select.append(new Option(val, val, true, true));
+    }
+    $select.val(val).trigger('change');
+  }
+
+  btnOpen.addEventListener('click', openModal);
+  modal.querySelectorAll('[data-cesdia-modal-close]').forEach(function (el) {
+    el.addEventListener('click', closeModal);
+  });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && !modal.hidden) {
+      closeModal();
+    }
+  });
+  input.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      btnSave.click();
+    }
+  });
+
+  btnSave.addEventListener('click', function () {
+    var nombre = String(input.value || '').trim();
+    if (!nombre) {
+      showError('Indique el nombre de la marca.');
+      input.focus();
+      return;
+    }
+    showError('');
+    btnSave.disabled = true;
+    var prevLabel = btnSave.textContent;
+    btnSave.textContent = 'Guardando…';
+
+    fetch(urlAgregar, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: {
+        'Accept': 'application/json',
+        'Content-Type': 'application/json',
+        'X-CSRF-Token': csrfToken()
+      },
+      body: JSON.stringify({ marca: nombre })
+    })
+      .then(function (res) {
+        return res.json().then(function (data) {
+          return { okHttp: res.ok, data: data };
+        });
+      })
+      .then(function (pack) {
+        var data = pack.data || {};
+        if (!pack.okHttp || !data.ok) {
+          showError(data.error || 'No se pudo registrar la marca.');
+          return;
+        }
+        seleccionarMarca(String(data.marca || nombre).toUpperCase());
+        closeModal();
+      })
+      .catch(function () {
+        showError('Error de red al registrar la marca.');
+      })
+      .finally(function () {
+        btnSave.disabled = false;
+        btnSave.textContent = prevLabel || 'Guardar y seleccionar';
+      });
+  });
+})();
+</script>
+<style>
+.cesdia-select2-marca + .select2-container {
+  width: 100% !important;
+}
+.select2-container--default .select2-selection--single {
+  height: 36px;
+  border: 1px solid var(--border, #d1d5db);
+  border-radius: var(--app-radius-md, 8px);
+  background: var(--bg, #fff);
+  padding: 0 8px;
+}
+.select2-container--default .select2-selection--single .select2-selection__rendered {
+  line-height: 34px;
+  padding-left: 4px;
+  color: var(--dark, #111827);
+  font-size: 13px;
+}
+.select2-container--default .select2-selection--single .select2-selection__placeholder {
+  color: var(--gmuted, #9ca3af);
+}
+.select2-container--default .select2-selection--single .select2-selection__arrow {
+  height: 34px;
+}
+.select2-container--default .select2-selection--single .select2-selection__clear {
+  margin-right: 18px;
+  font-size: 16px;
+}
+.select2-container--default.select2-container--focus .select2-selection--single,
+.select2-container--default.select2-container--open .select2-selection--single {
+  border-color: var(--app-emerald, #059669);
+  box-shadow: 0 0 0 3px var(--app-emerald-soft, rgba(5,150,105,.15));
+}
+.select2-dropdown {
+  border-color: var(--border, #d1d5db);
+  z-index: 10050;
+  font-size: 13px;
+}
+.select2-container--default .select2-results__option--highlighted.select2-results__option--selectable {
+  background: var(--app-emerald, #059669);
+}
+</style>
+<?php $this->end(); ?>

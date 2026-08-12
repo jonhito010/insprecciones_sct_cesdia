@@ -30,6 +30,7 @@ class VehiculosTable extends Table
     {
         return [
             'KILOGRAMOS' => 'Kilogramos',
+            'TONELADAS' => 'Toneladas',
             'LITROS' => 'Litros',
             'PASAJEROS' => 'Pasajeros',
         ];
@@ -119,6 +120,146 @@ class VehiculosTable extends Table
         return array_keys(self::opcionesTipoServicioTransportePrivado());
     }
 
+    /**
+     * Archivo escribible de marcas agregadas desde el formulario.
+     * Preferimos TMP (permisos del servidor web); se mantiene compatibilidad con config/.
+     */
+    public static function archivoMarcasCustom(): string
+    {
+        return TMP . 'vehiculo_marcas_custom.php';
+    }
+
+    /**
+     * @return list<string>
+     */
+    private static function rutasMarcasCustomLectura(): array
+    {
+        return [
+            self::archivoMarcasCustom(),
+            CONFIG . 'vehiculo_marcas_custom.php',
+        ];
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    private static function leerMarcasCustom(): array
+    {
+        /** @var array<string, string> $all */
+        $all = [];
+        foreach (self::rutasMarcasCustomLectura() as $file) {
+            if (!is_readable($file)) {
+                continue;
+            }
+            $mapa = require $file;
+            if (!is_array($mapa)) {
+                continue;
+            }
+            foreach ($mapa as $k => $v) {
+                $clave = trim((string)$k);
+                if ($clave === '') {
+                    continue;
+                }
+                $all[$clave] = trim((string)$v) !== '' ? trim((string)$v) : $clave;
+            }
+        }
+
+        return $all;
+    }
+
+    /**
+     * Catálogo de marcas (archivo base + marcas registradas desde el formulario).
+     *
+     * @return array<string, string> valor => etiqueta
+     */
+    public static function opcionesMarca(): array
+    {
+        $baseFile = CONFIG . 'vehiculo_marcas.php';
+        $base = is_readable($baseFile) ? require $baseFile : [];
+        if (!is_array($base)) {
+            $base = [];
+        }
+        /** @var array<string, string> $all */
+        $all = [];
+        foreach ([$base, self::leerMarcasCustom()] as $mapa) {
+            foreach ($mapa as $k => $v) {
+                $clave = trim((string)$k);
+                if ($clave === '') {
+                    continue;
+                }
+                $all[$clave] = trim((string)$v) !== '' ? trim((string)$v) : $clave;
+            }
+        }
+        ksort($all, SORT_NATURAL | SORT_FLAG_CASE);
+
+        return $all;
+    }
+
+    /**
+     * Normaliza y persiste una marca nueva (tmp/vehiculo_marcas_custom.php).
+     *
+     * @return array{ok: bool, marca?: string, existe?: bool, error?: string}
+     */
+    public static function registrarMarca(string $nombre): array
+    {
+        $marca = preg_replace('/\s+/u', ' ', trim($nombre)) ?? '';
+        $marca = mb_strtoupper($marca, 'UTF-8');
+        if ($marca === '') {
+            return ['ok' => false, 'error' => 'Indique el nombre de la marca.'];
+        }
+        if (mb_strlen($marca, 'UTF-8') > 80) {
+            return ['ok' => false, 'error' => 'Marca demasiado larga (máx. 80).'];
+        }
+
+        $actuales = self::opcionesMarca();
+        foreach ($actuales as $clave => $etiqueta) {
+            if (strcasecmp((string)$clave, $marca) === 0 || strcasecmp((string)$etiqueta, $marca) === 0) {
+                return ['ok' => true, 'marca' => (string)$clave, 'existe' => true];
+            }
+        }
+
+        $custom = self::leerMarcasCustom();
+        $custom[$marca] = $marca;
+        ksort($custom, SORT_NATURAL | SORT_FLAG_CASE);
+
+        $export = var_export($custom, true);
+        $php = <<<PHP
+<?php
+declare(strict_types=1);
+/**
+ * Marcas de vehículo agregadas desde el formulario de inspección.
+ */
+return {$export};
+
+PHP;
+
+        $customFile = self::archivoMarcasCustom();
+        $dir = dirname($customFile);
+        if (!is_dir($dir) && !@mkdir($dir, 0775, true) && !is_dir($dir)) {
+            return ['ok' => false, 'error' => 'No se pudo preparar el directorio del catálogo.'];
+        }
+        if (!is_writable($dir) && !(is_file($customFile) && is_writable($customFile))) {
+            return ['ok' => false, 'error' => 'El servidor no tiene permiso para guardar marcas. Contacte al administrador.'];
+        }
+
+        $tmpWrite = $customFile . '.' . bin2hex(random_bytes(4)) . '.tmp';
+        if (@file_put_contents($tmpWrite, $php, LOCK_EX) === false) {
+            return ['ok' => false, 'error' => 'No se pudo guardar la marca en el catálogo.'];
+        }
+        @chmod($tmpWrite, 0666);
+        if (!@rename($tmpWrite, $customFile)) {
+            // Fallback si rename falla entre FS distintos.
+            $ok = @copy($tmpWrite, $customFile);
+            @unlink($tmpWrite);
+            if (!$ok) {
+                return ['ok' => false, 'error' => 'No se pudo guardar la marca en el catálogo.'];
+            }
+        }
+        @chmod($customFile, 0666);
+
+        return ['ok' => true, 'marca' => $marca, 'existe' => false];
+    }
+
     public function initialize(array $config): void
     {
         parent::initialize($config);
@@ -142,17 +283,18 @@ class VehiculosTable extends Table
                 'message' => 'Placas inválidas (use letras, números y guion; 4–12 caracteres).',
             ])
             ->notEmptyString('niv', 'El NIV (VIN) es obligatorio.')
+            ->minLength('niv', 5, 'El NIV debe tener al menos 5 caracteres.')
             ->maxLength('niv', 17, 'El NIV admite como máximo 17 caracteres.')
             ->add('niv', 'nivVin', [
                 'rule' => function ($value) {
                     return InspeccionMexico::nivValido((string)$value);
                 },
-                'message' => 'El NIV debe tener entre 1 y 17 caracteres alfanuméricos (sin I, O ni Q).',
+                'message' => 'El NIV debe tener entre 5 y 17 caracteres alfanuméricos (sin I, O ni Q).',
             ])
-            ->allowEmptyString('folio_tc')
+            ->notEmptyString('folio_tc', 'El folio de la tarjeta de circulación es obligatorio.')
             ->maxLength('folio_tc', 40, 'Folio TC demasiado largo.')
             ->notEmptyString('tipo_vehiculo', 'Seleccione el tipo de vehículo.')
-            ->inList('tipo_vehiculo', TipoVehiculoRequisitos::codigos(), 'Seleccione un tipo de vehículo válido (D1, D2, T2, T3, S2 o S3).')
+            ->inList('tipo_vehiculo', TipoVehiculoRequisitos::codigos(), 'Seleccione un tipo de vehículo válido.')
             ->notEmptyString('marca', 'Seleccione o indique la marca.')
             ->maxLength('marca', 80, 'Marca demasiado larga.')
             ->integer('anio', 'El año debe ser un número entero.')
@@ -264,7 +406,7 @@ class VehiculosTable extends Table
 
                         return (int)$value === $def['ejes'];
                     },
-                    'message' => 'El número de ejes debe coincidir con el tipo (D1→1, D2→2, T2→2, T3→3, S2→2, S3→3).',
+                    'message' => 'El número de ejes debe coincidir con el tipo de vehículo (p. ej. T2→2, T3→3, B2→2, B3→3).',
                 ]);
         }
 

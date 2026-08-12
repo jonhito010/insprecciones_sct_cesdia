@@ -12,15 +12,31 @@ use Cake\Validation\Validator;
 
 class InspeccionRinesTable extends Table
 {
+    /** @var list<string> */
+    private const CAMPOS_CUMPLE = [
+        'sujetadores_cumple',
+        'maza_cumple',
+        'balero_cumple',
+    ];
+
     public function initialize(array $config): void
     {
         parent::initialize($config);
         $this->setTable('inspeccion_rines');
         $this->belongsTo('Inspecciones', ['foreignKey' => 'inspeccion_id']);
+        // MySQL ENUM: el select «--» envía '' y trunca / falla; persistir NULL.
+        // Así las filas sin captura quedan vacías (PDF en blanco) y no heredan la llanta 1.
+        $this->addBehavior('NormalizaEnumCumple', [
+            'fields' => self::CAMPOS_CUMPLE,
+        ]);
     }
 
     public function beforeMarshal(EventInterface $event, ArrayObject $data, ArrayObject $options): void
     {
+        if ($data->offsetExists('num_sujetadores') && $data['num_sujetadores'] === '') {
+            $data['num_sujetadores'] = null;
+        }
+
         // Filas nuevas: solo numero_llanta; par_rines deprecada → NULL.
         if (!$this->getSchema()->hasColumn('numero_llanta')) {
             return;
@@ -53,7 +69,7 @@ class InspeccionRinesTable extends Table
             $validator
                 ->allowEmptyString('numero_llanta')
                 ->integer('numero_llanta', 'Número de llanta no válido.')
-                ->range('numero_llanta', [1, 12], 'El número de llanta debe estar entre 1 y 12.');
+                ->range('numero_llanta', [1, 16], 'El número de llanta debe estar entre 1 y 16.');
         }
 
         $validator

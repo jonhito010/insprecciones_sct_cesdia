@@ -2,6 +2,9 @@
 namespace App\Model\Table;
 
 use App\Validation\InspeccionMexico;
+use ArrayObject;
+use Cake\Datasource\EntityInterface;
+use Cake\Event\EventInterface;
 use Cake\ORM\Table;
 use Cake\Validation\Validator;
 
@@ -14,6 +17,49 @@ class InspeccionIluminacionTable extends Table
         $this->belongsTo('Inspecciones', ['foreignKey' => 'inspeccion_id']);
     }
 
+    public function beforeMarshal(EventInterface $event, ArrayObject $data, ArrayObject $options): void
+    {
+        if ($data->offsetExists('parabrisas_tipo')) {
+            $data['parabrisas_tipo'] = InspeccionMexico::normalizarParabrisasTipo($data['parabrisas_tipo']);
+        }
+        // Si el formulario no envía placa (F-19/F-20 o PATCH parcial),
+        // sincronizar con luz de placa para que NOM 75 no quede vacío en el PDF.
+        $placaVacia = !$data->offsetExists('placa_identificacion')
+            || $data['placa_identificacion'] === ''
+            || $data['placa_identificacion'] === null;
+        if ($placaVacia) {
+            $fallback = $data['luz_placa_trasera'] ?? null;
+            if (is_string($fallback) && $fallback !== '') {
+                $data['placa_identificacion'] = $fallback;
+            }
+        }
+        $luzVacia = !$data->offsetExists('luz_placa_trasera')
+            || $data['luz_placa_trasera'] === ''
+            || $data['luz_placa_trasera'] === null;
+        if ($luzVacia && !$placaVacia && is_string($data['placa_identificacion'] ?? null) && $data['placa_identificacion'] !== '') {
+            $data['luz_placa_trasera'] = $data['placa_identificacion'];
+        }
+    }
+
+    public function beforeSave(EventInterface $event, EntityInterface $entity, ArrayObject $options): void
+    {
+        $placa = $entity->get('placa_identificacion');
+        if ($placa === null || $placa === '') {
+            $luz = $entity->get('luz_placa_trasera');
+            $entity->set(
+                'placa_identificacion',
+                (is_string($luz) && $luz !== '') ? $luz : 'CUMPLE'
+            );
+        }
+        $luz = $entity->get('luz_placa_trasera');
+        if (($luz === null || $luz === '') && in_array($entity->get('placa_identificacion'), InspeccionMexico::OPCIONES_CUMPLE, true)) {
+            // Remolque / cabina: mantener renglón NOM 52 alineado si solo llegó placa.
+            if ($entity->isDirty('placa_identificacion') || $entity->isNew()) {
+                $entity->set('luz_placa_trasera', $entity->get('placa_identificacion'));
+            }
+        }
+    }
+
     public function validationDefault(Validator $validator): Validator
     {
         foreach ([
@@ -22,7 +68,7 @@ class InspeccionIluminacionTable extends Table
             'luces_traseras', 'luz_niebla', 'parabrisas', 'ventanas_laterales', 'ventana_posterior',
             'limpiaparabrisas', 'inyectores_agua', 'defensa_delantera', 'luces_reversa', 'galibo_trasero',
             'demarcadoras_laterales', 'luces_interiores', 'espejos_retrovisores',
-            'faros_montaje', 'luces_peligro', 'parabrisas_tipo',
+            'faros_montaje', 'luces_peligro',
         ] as $c) {
             $validator
                 ->allowEmptyString($c)
@@ -30,6 +76,18 @@ class InspeccionIluminacionTable extends Table
                     return ($context['data'][$c] ?? '') !== '';
                 });
         }
+
+        // Parabrisas tipo: AS-1 o AS 10 (ambas Cumple; sin N/A).
+        $validator
+            ->allowEmptyString('parabrisas_tipo')
+            ->inList(
+                'parabrisas_tipo',
+                array_keys(InspeccionMexico::OPCIONES_PARABRISAS_TIPO),
+                'Parabrisas tipo: seleccione AS-1 (Cumple), AS 10 (Cumple) o No cumple.',
+                function ($context) {
+                    return ($context['data']['parabrisas_tipo'] ?? '') !== '';
+                }
+            );
 
         return $validator;
     }

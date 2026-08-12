@@ -94,10 +94,9 @@ final class RemolquePdfBuilder
         ], static fn ($x) => $x !== null && $x !== '')));
 
         $cabecera = trim(implode(' ', array_filter([
-            $uvClave,
             $uvAprob,
+            $uvClave,
             $uv,
-            $folioDict,
             $res,
             $fechaTxt,
             $fechaAntTxt !== '' ? 'Ant.: ' . $fechaAntTxt : '',
@@ -117,6 +116,8 @@ final class RemolquePdfBuilder
             'cabecera_dictamen' => $cabecera,
             'cabecera_horas' => $horasTxt,
             'tecnico_verificador' => $tecnicoNom,
+            'numero_aprobacion' => $uvAprob,
+            'folio_dictamen' => $folioDict,
             'placas' => $placas,
             'niv' => $niv,
             'marca' => $marca,

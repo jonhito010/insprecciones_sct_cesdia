@@ -42,6 +42,38 @@ class InspeccionSistemaAireTable extends Table
                 });
         }
 
+        $validator->add('caida_presion_psi', 'rangoCaida', [
+            'rule' => function ($value) {
+                if ($value === null || $value === '') {
+                    return true;
+                }
+                $n = (float)$value;
+
+                return $n >= InspeccionMexico::CAIDA_PRESION_PSI_MIN
+                    && $n <= InspeccionMexico::CAIDA_PRESION_PSI_MAX_GENERAL;
+            },
+            'message' => sprintf(
+                'Caída de presión (PSI) debe estar entre %s y %s.',
+                (int)InspeccionMexico::CAIDA_PRESION_PSI_MIN,
+                (int)InspeccionMexico::CAIDA_PRESION_PSI_MAX_GENERAL
+            ),
+        ]);
+
+        $validator->add('tiempo_carga_min', 'rangoTiempo', [
+            'rule' => function ($value) {
+                if ($value === null || $value === '') {
+                    return true;
+                }
+                $seg = InspeccionMexico::tiempoCargaSegDesdeMin($value);
+
+                return $seg >= 0 && $seg <= InspeccionMexico::TIEMPO_CARGA_SEG_MAX_GENERAL;
+            },
+            'message' => sprintf(
+                'Tiempo de carga no puede superar %s min.',
+                (int)(InspeccionMexico::TIEMPO_CARGA_SEG_MAX_GENERAL / 60)
+            ),
+        ]);
+
         // FIX2 · XXXIX: mediciones en PSI (decimal), no enum CUMPLE.
         foreach (['presion_cierre_con_disp', 'presion_cierre_sin_disp'] as $c) {
             $validator

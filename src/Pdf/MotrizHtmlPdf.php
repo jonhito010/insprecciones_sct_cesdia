@@ -64,7 +64,7 @@ final class MotrizHtmlPdf
         $cab   = $inspeccion->inspeccion_cabina ?? null;
         $aire  = $inspeccion->inspeccion_sistema_aire ?? null;
         $frMot = $inspeccion->inspeccion_frenos ?? $inspeccion->inspeccion_freno ?? null;
-        $chMot = $inspeccion->inspeccion_chasis ?? null;
+        $chMot = $inspeccion->inspeccion_chasis ?? $inspeccion->inspeccion_chasi ?? null;
 
         $marcadores = [
             // Iluminación

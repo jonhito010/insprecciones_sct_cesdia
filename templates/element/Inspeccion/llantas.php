@@ -24,7 +24,7 @@ $t2LegacyVista = $vehiculo && strtoupper(trim((string)($vehiculo->tipo_vehiculo 
     </span>
   </div>
   <div class="card-body">
-    <p style="font-size:12px;color:var(--gmuted);margin-bottom:1rem;">Las filas mostradas dependen del <strong>tipo de vehículo</strong> (al cambiarlo en el paso 2 se actualizan aquí). Profundidad mínima: 1.6 mm. Presión en PSI. Referencia: 90–110 PSI; profundidad llantas delanteras: 45–90 mm; resto: 20–60 mm (pares sin diferir &gt;10 PSI / 10 mm según dictamen).</p>
+    <p style="font-size:12px;color:var(--gmuted);margin-bottom:1rem;">Las filas mostradas dependen del <strong>tipo de vehículo</strong> (al cambiarlo en el paso 2 se actualizan aquí). Numeración correlativa: LLANTA 1, 2, 3… (sin repetir). Profundidad mínima: 1.6 mm. Presión en PSI: <strong>90–110</strong> (general); <strong>C2L: 40–50</strong>; <strong>C2L6: 60–70 PSI</strong>. Profundidad llantas delanteras: 45–90 mm; resto: 20–60 mm (pares sin diferir &gt;10 PSI / 10 mm según dictamen).</p>
     <div id="cesdia-llantas-root" data-t2-legacy="<?= $t2LegacyVista ? '1' : '0' ?>" data-default-field-class="<?= h(trim($df)) ?>">
     <?php
     $llantasData = [];
@@ -47,6 +47,7 @@ $t2LegacyVista = $vehiculo && strtoupper(trim((string)($vehiculo->tipo_vehiculo 
         [$num, $pos] = $slot;
         $ll = $llantasData[$num][$pos] ?? null;
         $tituloLlanta = TipoVehiculoRequisitos::etiquetaLlanta($tipoSel, (int)$num, (string)$pos);
+        $posVisible = TipoVehiculoRequisitos::etiquetaPosicionVisible($tipoSel, (int)$num, (string)$pos);
     ?>
     <div class="cesdia-section cesdia-llanta-fila" style="margin-bottom:1rem;" data-num="<?= (int)$num ?>" data-pos="<?= h($pos) ?>">
       <div class="sec-head"><span class="sec-head-title"><?= h($tituloLlanta) ?></span></div>
@@ -54,7 +55,7 @@ $t2LegacyVista = $vehiculo && strtoupper(trim((string)($vehiculo->tipo_vehiculo 
         <div class="cesdia-llanta-box">
           <div class="llanta-title">
             <svg viewBox="0 0 24 24" width="12" height="12"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="4"/></svg>
-            Posición <?= h($pos) ?>
+            Posición <?= h($posVisible) ?>
           </div>
           <?= $this->Form->hidden("inspeccion_llantas.$i.numero_llanta", ['value' => $num]) ?>
           <?= $this->Form->hidden("inspeccion_llantas.$i.posicion", ['value' => $pos]) ?>
@@ -102,8 +103,24 @@ $t2LegacyVista = $vehiculo && strtoupper(trim((string)($vehiculo->tipo_vehiculo 
               <?= $this->Form->control("inspeccion_llantas.$i.costados", ['label' => false, 'options' => $cumpleOpts, 'empty' => '--', 'class' => 'cesdia-select' . $df, 'value' => $ll ? $ll->costados : 'CUMPLE']) ?>
             </div>
             <div class="cesdia-form-group">
-              <label class="cesdia-label">Rín condición</label>
-              <?= $this->Form->control("inspeccion_llantas.$i.rin_condicion", ['label' => false, 'options' => $cumpleOpts, 'empty' => '--', 'class' => 'cesdia-select' . $df, 'value' => $ll ? $ll->rin_condicion : 'CUMPLE']) ?>
+              <label class="cesdia-label">Rin de disco</label>
+              <?php
+                $rinDiscoVal = $ll ? ($ll->rin_condicion ?? 'CUMPLE') : 'CUMPLE';
+                $artilleriaVal = \App\Validation\InspeccionMexico::valorRinArtilleria(
+                    $rinDiscoVal,
+                    $ll ? ($ll->rin_artilleria ?? null) : null
+                );
+                if ($artilleriaVal === null || $artilleriaVal === '') {
+                    $artilleriaVal = strtoupper(trim((string)$rinDiscoVal)) === 'CUMPLE' ? 'N/A' : 'CUMPLE';
+                }
+              ?>
+              <?= $this->Form->control("inspeccion_llantas.$i.rin_condicion", [
+                'label' => false,
+                'options' => $cumpleOpts,
+                'empty' => '--',
+                'class' => 'cesdia-select cesdia-rin-disco' . $df,
+                'value' => $rinDiscoVal,
+              ]) ?>
             </div>
             <div class="cesdia-form-group">
               <label class="cesdia-label">SUJETADORES, TUERCAS BIRLOS</label>
@@ -112,7 +129,13 @@ $t2LegacyVista = $vehiculo && strtoupper(trim((string)($vehiculo->tipo_vehiculo 
             <?php if (!$esDolly) : ?>
             <div class="cesdia-form-group">
               <label class="cesdia-label">RIN DE ARTILLERIA, PIEZAS MULTIPLES, CONDICION, ABRAZADERAS, ANILLOS DE SEGURIDAD</label>
-              <?= $this->Form->control("inspeccion_llantas.$i.rin_artilleria", ['label' => false, 'options' => $cumpleOpts, 'empty' => '--', 'class' => 'cesdia-select' . $df, 'value' => $ll ? ($ll->rin_artilleria ?? 'CUMPLE') : 'CUMPLE']) ?>
+              <?= $this->Form->control("inspeccion_llantas.$i.rin_artilleria", [
+                'label' => false,
+                'options' => $cumpleOpts,
+                'empty' => '--',
+                'class' => 'cesdia-select cesdia-rin-artilleria' . $df,
+                'value' => $artilleriaVal,
+              ]) ?>
             </div>
             <?php endif; ?>
           </div>

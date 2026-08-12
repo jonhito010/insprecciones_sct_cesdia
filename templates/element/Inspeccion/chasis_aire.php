@@ -1,7 +1,7 @@
 <?php
 /**
- * 7. Chasis y Sistema de Aire.
- *   - Combustible/escape/batería y aire ampliado: F-17 / F-18 / F-21 (con cabina).
+ * 7. Chasis y Sistema de Aire (F-17 / F-19 / F-20).
+ *   - Combustible Diesel ↔ Gas LP: F-17 (este element) / F-18 / F-21.
  *   - Conexiones al remolque y presión de cierre: F-17 Tracto.
  *
  * @var \App\View\AppView $this
@@ -12,9 +12,9 @@
  */
 $chasis = $inspeccion->inspeccion_chasis ?? null;
 $aire = $inspeccion->inspeccion_sistema_aire ?? null;
-$esCabina = in_array($tipoFormulario, ['F17_TRACTO', 'F18_CAMION', 'F21_AUTOBUS'], true);
+// F-18 Camión usa Inspeccion/chasis_aire_f18 (no este element).
+$esCabina = in_array($tipoFormulario, ['F17_TRACTO', 'F21_AUTOBUS'], true);
 $esTracto = $tipoFormulario === 'F17_TRACTO';
-$esCamion = $tipoFormulario === 'F18_CAMION';
 $esRemolque = $tipoFormulario === 'F19_REMOLQUE';
 $esDolly = $tipoFormulario === 'F20_DOLLY';
 $esAutobus = $tipoFormulario === 'F21_AUTOBUS';
@@ -30,7 +30,7 @@ $esAutobus = $tipoFormulario === 'F21_AUTOBUS';
     <?php if (!$esAutobus) : ?>
     <div class="cesdia-grid-3">
       <?php
-            // P3.2: ocultar convertidor en F-17/F-18 (columna se conserva en BD)
+            // P3.2: ocultar convertidor en F-17 (columna se conserva en BD)
             $camposChasis = ($esRemolque || $esDolly)
           ? [
               'vigas_chasis'        => 'Vigas del chasis: reparadas, perforadas, agrietadas, oxidadas, corroídas',
@@ -43,49 +43,27 @@ $esAutobus = $tipoFormulario === 'F21_AUTOBUS';
     </div>
     <?php endif; ?>
     <?php if ($esCabina) : ?>
-    <!-- Combustible / escape / batería — F-17 / F-18 / F-21 -->
+    <!-- Combustible (Diesel ↔ Gas LP) + escape / batería — F-17 / F-21 -->
     <div>
+      <?= $this->element('Inspeccion/combustible_diesel_gaslp', compact('inspeccion', 'cumpleOpts', 'df')) ?>
       <div class="cesdia-section" style="margin-top:1rem;">
-        <div class="sec-head"><span class="sec-head-title">Sistema de combustible, escape y batería</span></div>
+        <div class="sec-head"><span class="sec-head-title">Sistema de escape y batería</span></div>
         <div class="sec-body">
           <div class="cesdia-grid-3">
             <?php
-            $camposChasisCabina = [
-              'combustible_tapon'          => 'TAPON (ES)',
-              'combustible_tanque'         => 'TANQUE (ES) SOPORTE, SUJETADORES Y CORREAS',
-              'combustible_cubierta_jaula' => 'CUBIERTA DEL TANQUE TIPO JAULA',
-              'combustible_lineas_bomba'   => 'LINEAS, MANGUERAS, BOMBA',
-              'escape_multiple'            => 'MULTIPLE',
-              'escape_mofle'               => 'MOFLE, RESONADORES',
-              'escape_tubos'               => 'TUBOS DE ESCAPE, COBERTURAS TERMICAS',
-              'escape_montaje'             => 'MONTAJE Y HERRAJES, POSICION, FINAL DEL TUBO',
-              'bateria'                    => 'Batería',
+            $camposEscapeBateria = [
+              'escape_multiple' => 'MULTIPLE',
+              'escape_mofle' => 'MOFLE, RESONADORES',
+              'escape_tubos' => 'TUBOS DE ESCAPE, COBERTURAS TERMICAS',
+              'escape_montaje' => 'MONTAJE Y HERRAJES, POSICION, FINAL DEL TUBO',
+              'bateria' => 'Batería',
             ];
-            // P3.2: combustible_gas_lp genérico oculto; F-18 usa desglose gaslp_*
-            foreach ($camposChasisCabina as $c => $l): ?>
+            foreach ($camposEscapeBateria as $c => $l): ?>
             <div class="cesdia-form-group"><?= $this->Form->control("inspeccion_chasis.$c", ['label' => ['text' => $l, 'class' => 'cesdia-label'], 'options' => $cumpleOpts, 'empty' => '--', 'class' => 'cesdia-select' . $df, 'value' => $chasis && isset($chasis->$c) ? $chasis->$c : 'CUMPLE']) ?></div>
             <?php endforeach; ?>
           </div>
         </div>
       </div>
-      <?php if ($esCamion) : ?>
-      <!-- Sistema de combustible (Gas LP) — F-18 Camión -->
-      <div class="cesdia-section" style="margin-top:1rem;">
-        <div class="sec-head"><span class="sec-head-title">Sistema de combustible (Gas LP)</span></div>
-        <div class="sec-body">
-          <div class="cesdia-grid-3">
-            <?php foreach ([
-              'gaslp_soporte_tanque'   => 'SOPORTE TANQUE',
-              'gaslp_etiqueta_cilindro'=> 'ETIQUETA DEL CILINDRO',
-              'gaslp_condicion'        => 'CONDICION FISICA, VALVULAS, LINEAS, VALVULA DE ALIVIO',
-              'gaslp_cinchos'          => 'CINCHOS Y SOPORTE, PERNOS DE MONTAJE GRADO 5',
-            ] as $c => $l): ?>
-            <div class="cesdia-form-group"><?= $this->Form->control("inspeccion_chasis.$c", ['label' => ['text' => $l, 'class' => 'cesdia-label'], 'options' => $cumpleOpts, 'empty' => '--', 'class' => 'cesdia-select' . $df, 'value' => $chasis && isset($chasis->$c) ? $chasis->$c : 'CUMPLE']) ?></div>
-            <?php endforeach; ?>
-          </div>
-        </div>
-      </div>
-      <?php endif; ?>
     </div>
     <?php endif; ?>
     <?php if (!$esDolly) : ?>
@@ -132,20 +110,7 @@ $esAutobus = $tipoFormulario === 'F21_AUTOBUS';
             <div class="cesdia-form-group"><?= $this->Form->control("inspeccion_sistema_aire.$c", ['label' => ['text' => $l, 'class' => 'cesdia-label'], 'options' => $cumpleOpts, 'empty' => '--', 'class' => 'cesdia-select' . $df, 'value' => $aire && isset($aire->$c) ? $aire->$c : 'CUMPLE']) ?></div>
             <?php endforeach; ?>
           </div>
-          <div class="cesdia-grid-4" style="margin-top:.75rem;">
-            <div class="cesdia-form-group">
-              <?= $this->Form->control('inspeccion_sistema_aire.caida_presion_psi', ['label' => ['text' => 'Caída de presión (PSI)', 'class' => 'cesdia-label'], 'type' => 'number', 'step' => '0.1', 'min' => 0, 'class' => 'cesdia-input' . $df, 'value' => $aire ? ($aire->caida_presion_psi ?? '') : '']) ?>
-            </div>
-            <div class="cesdia-form-group">
-              <?= $this->Form->control('inspeccion_sistema_aire.caida_presion_cumple', ['label' => ['text' => 'Caída ¿Cumple?', 'class' => 'cesdia-label'], 'options' => $cumpleOpts, 'empty' => '--', 'class' => 'cesdia-select' . $df, 'value' => $aire ? ($aire->caida_presion_cumple ?? 'CUMPLE') : 'CUMPLE']) ?>
-            </div>
-            <div class="cesdia-form-group">
-              <?= $this->Form->control('inspeccion_sistema_aire.tiempo_carga_min', ['label' => ['text' => 'Tiempo de carga (min)', 'class' => 'cesdia-label'], 'type' => 'number', 'step' => '0.1', 'min' => 0, 'class' => 'cesdia-input' . $df, 'value' => $aire ? ($aire->tiempo_carga_min ?? '') : '']) ?>
-            </div>
-            <div class="cesdia-form-group">
-              <?= $this->Form->control('inspeccion_sistema_aire.tiempo_carga_cumple', ['label' => ['text' => 'Tiempo ¿Cumple?', 'class' => 'cesdia-label'], 'options' => $cumpleOpts, 'empty' => '--', 'class' => 'cesdia-select' . $df, 'value' => $aire ? ($aire->tiempo_carga_cumple ?? 'CUMPLE') : 'CUMPLE']) ?>
-            </div>
-          </div>
+          <?= $this->element('Inspeccion/aire_mediciones_motriz', ['aire' => $aire, 'cumpleOpts' => $cumpleOpts, 'df' => $df, 'sufijoLabel' => '']) ?>
         </div>
       </div>
       <?php if ($esTracto) : ?>
@@ -161,10 +126,20 @@ $esAutobus = $tipoFormulario === 'F21_AUTOBUS';
             </div>
             <div class="cesdia-grid-4" style="margin-top:.75rem;">
               <div class="cesdia-form-group">
-                <?= $this->Form->control('inspeccion_sistema_aire.presion_cierre_con_disp', ['label' => ['text' => 'Presión cierre con disp. (PSI)', 'class' => 'cesdia-label'], 'type' => 'number', 'step' => '0.1', 'min' => 0, 'class' => 'cesdia-input' . $df, 'value' => $aire ? ($aire->presion_cierre_con_disp ?? '') : '']) ?>
+                <?php
+                  $presCon = $aire?->presion_cierre_con_disp ?? null;
+                  if ($presCon === null || $presCon === '') {
+                      $presCon = $df !== '' ? \App\Validation\InspeccionMexico::PRESION_CIERRE_CON_DISP_DEFAULT : '';
+                  }
+                  $presSin = $aire?->presion_cierre_sin_disp ?? null;
+                  if ($presSin === null || $presSin === '') {
+                      $presSin = $df !== '' ? \App\Validation\InspeccionMexico::PRESION_CIERRE_SIN_DISP_DEFAULT : '';
+                  }
+                ?>
+                <?= $this->Form->control('inspeccion_sistema_aire.presion_cierre_con_disp', ['label' => ['text' => 'Presión cierre con disp. (PSI)', 'class' => 'cesdia-label'], 'type' => 'number', 'step' => '0.1', 'min' => 0, 'class' => 'cesdia-input' . $df, 'value' => $presCon]) ?>
               </div>
               <div class="cesdia-form-group">
-                <?= $this->Form->control('inspeccion_sistema_aire.presion_cierre_sin_disp', ['label' => ['text' => 'Presión cierre sin disp. (PSI)', 'class' => 'cesdia-label'], 'type' => 'number', 'step' => '0.1', 'min' => 0, 'class' => 'cesdia-input' . $df, 'value' => $aire ? ($aire->presion_cierre_sin_disp ?? '') : '']) ?>
+                <?= $this->Form->control('inspeccion_sistema_aire.presion_cierre_sin_disp', ['label' => ['text' => 'Presión cierre sin disp. (PSI)', 'class' => 'cesdia-label'], 'type' => 'number', 'step' => '0.1', 'min' => 0, 'class' => 'cesdia-input' . $df, 'value' => $presSin]) ?>
               </div>
             </div>
           </div>

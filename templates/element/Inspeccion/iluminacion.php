@@ -22,6 +22,7 @@ $esRemolque = ($tipoFormulario ?? '') === 'F19_REMOLQUE';
 $traseraCampos = $esDolly ? [
     'luces_freno'         => 'LUCES DE FRENO (SI CUENTA)',
     'luces_intermitentes' => 'LUCES DE PELIGRO (SI CUENTA)',
+    'placa_identificacion'=> 'Placa de identificación (si cuenta)',
 ] : ($esRemolque ? [
     'luces_freno'         => 'LUCES DE FRENO',
     'luces_intermitentes' => 'LUCES DE PELIGRO',
@@ -61,6 +62,9 @@ $lucesDelanteraCampos = $esAutobus ? [
     'galibo_delantero'  => 'Luces de galibo (2 adelante ámbar, 2 atrás rojas)',
     'luz_alta_baja'     => 'Luz alta, baja',
     'luz_diurna'        => 'Luz que ilumina durante el día (blanco/amarillo)',
+    // NOM 53 — mismos renglones del PDF F-17 / F-18
+    'luces_traseras'    => 'Luces traseras, altura 38 y 180 cm',
+    'direccionales'     => 'Direccionales 2 o 4 viendo adelante color ámbar',
     'luces_peligro'     => 'Luces de peligro 2 o 4 viendo hacia adelante',
     // P3.1: renglón separado NOM 53 (también en F-17/F-18)
     'luces_intermitentes' => 'Luces intermitentes / de peligro',
@@ -82,8 +86,12 @@ $parabrisasCampos = $esAutobus ? [
     'limpiaparabrisas'    => 'Limpiaparabrisas',
     'inyectores_agua'     => 'INYECTORES DE AGUA (SI CUENTA DE FABRICA) FALTANTES, NO FUNCIONAN',
     'defensa_delantera'   => 'Defensa delantera',
+    // NOM 75 — renglón del PDF (antes solo existía en F-21; sin esto el PDF sale vacío).
+    'placa_identificacion'=> 'Placa de identificación',
     'espejos_retrovisores'=> 'Espejos retrovisores',
 ];
+// AS-1 / AS 10 = Cumple; No cumple. Sin N/A.
+$optsParabrisasTipo = \App\Validation\InspeccionMexico::OPCIONES_PARABRISAS_TIPO;
 ?>
 <div class="cesdia-card" style="margin-bottom:1.2rem;">
   <div class="card-header">
@@ -111,8 +119,23 @@ $parabrisasCampos = $esAutobus ? [
         <div class="sec-head"><span class="sec-head-title">Parabrisas y visibilidad</span></div>
         <div class="sec-body">
           <div class="cesdia-grid-3">
-            <?php foreach ($parabrisasCampos as $c => $l): ?>
-            <div class="cesdia-form-group"><?= $this->Form->control("inspeccion_iluminacion.$c", ['label' => ['text' => $l, 'class' => 'cesdia-label'], 'options' => $cumpleOpts, 'empty' => '--', 'class' => 'cesdia-select' . $df, 'value' => $ilum && isset($ilum->$c) ? $ilum->$c : 'CUMPLE']) ?></div>
+            <?php foreach ($parabrisasCampos as $c => $l):
+              $optsCampo = ($c === 'parabrisas_tipo') ? $optsParabrisasTipo : $cumpleOpts;
+              if ($c === 'parabrisas_tipo') {
+                  $valCampo = \App\Validation\InspeccionMexico::normalizarParabrisasTipo(
+                      $ilum && isset($ilum->$c) ? $ilum->$c : 'AS-1'
+                  );
+              } else {
+                  $valCampo = $ilum && isset($ilum->$c) && $ilum->$c !== '' ? (string)$ilum->$c : 'CUMPLE';
+              }
+            ?>
+            <div class="cesdia-form-group"><?= $this->Form->control("inspeccion_iluminacion.$c", [
+              'label' => ['text' => $l, 'class' => 'cesdia-label'],
+              'options' => $optsCampo,
+              'empty' => ($c === 'parabrisas_tipo') ? false : '--',
+              'class' => 'cesdia-select' . $df,
+              'value' => $valCampo,
+            ]) ?></div>
             <?php endforeach; ?>
           </div>
         </div>

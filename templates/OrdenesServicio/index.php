@@ -19,13 +19,14 @@ $this->assign('title', 'Órdenes de servicio F-04');
           <th>Solicitante</th>
           <th>Placas</th>
           <th>UV</th>
+          <th>Máquina</th>
           <th>Estatus</th>
           <th></th>
         </tr>
       </thead>
       <tbody>
         <?php if (empty($ordenes)) : ?>
-        <tr><td colspan="7" style="padding:1rem;color:var(--gmuted);">No hay órdenes (o la tabla aún no está migrada).</td></tr>
+        <tr><td colspan="8" style="padding:1rem;color:var(--gmuted);">No hay órdenes (o la tabla aún no está migrada).</td></tr>
         <?php else : foreach ($ordenes as $o) : ?>
         <tr>
           <td><?= (int)$o->id ?></td>
@@ -33,6 +34,7 @@ $this->assign('title', 'Órdenes de servicio F-04');
           <td><?= h($o->propietario->nombre_razon_social ?? '—') ?></td>
           <td><?= h($o->vehiculo->placas ?? '—') ?></td>
           <td><?= h($o->unidades_inspeccion->nombre ?? ($o->unidad_inspeccion->nombre ?? '—')) ?></td>
+          <td><?= h($o->numero_equipo ?? '—') ?></td>
           <td><?= h((string)($o->estatus ?? '')) ?></td>
           <td>
             <a href="<?= $this->Url->build(['action' => 'view', $o->id]) ?>">Ver</a>

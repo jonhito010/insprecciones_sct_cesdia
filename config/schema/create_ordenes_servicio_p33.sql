@@ -7,6 +7,7 @@ CREATE TABLE IF NOT EXISTS `ordenes_servicio` (
   `propietario_id` int unsigned NOT NULL,
   `vehiculo_id` int unsigned NOT NULL,
   `unidad_inspeccion_id` int unsigned NOT NULL,
+  `numero_equipo` varchar(25) DEFAULT NULL,
   `fecha_contrato` date NOT NULL,
   `estatus` enum('BORRADOR','EMITIDA','CANCELADA') NOT NULL DEFAULT 'BORRADOR',
   `firma_solicitante` varchar(255) DEFAULT NULL,

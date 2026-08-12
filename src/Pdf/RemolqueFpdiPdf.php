@@ -7,277 +7,260 @@ use Cake\Datasource\EntityInterface;
 use setasign\Fpdi\Fpdi;
 
 /**
- * Genera el PDF remolque/arrastre superponiendo datos sobre base_remolque.pdf (FPDI).
+ * PDF remolque/arrastre.
+ *
+ * Posiciones y tamaño de letra tomados de tmp/PLATILLA ARRASTRE.pdf
+ * (origen arriba-izquierda, pt; Y = baseline FPDF::Text).
+ *
+ * USE_FONDO_CALIBRACION:
+ *   true  → fondo PDF + tapones + texto rojo (calibrar)
+ *   false → hoja en blanco + solo datos/firma en negro (producción / overlay)
  */
 final class RemolqueFpdiPdf
 {
     private const PAGE_W = 612.0;
     private const PAGE_H = 1008.0;
-    private const FONT_SIZE = 7.0;
-    private const MM_PT = 72 / 25.4;
-    /** Desplazamiento hacia abajo en los 3 bloques (copias del formato). */
-    private const BLOQUE_Y_OFFSET_PT = 3.0 * self::MM_PT;
-    /** Fecha/hora bloque 1: ajuste fino arriba e izquierda (igual que motriz). */
-    private const BLOQUE1_FECHA_HORA_DX_PT = -2.0 * self::MM_PT;
-    private const BLOQUE1_FECHA_HORA_DY_PT = -4.0 * self::MM_PT;
-    /** Número de acreditación (UV): 3 mm a la izquierda en los 3 bloques */
-    private const UV_CLAVE_DX_PT = -3.0 * self::MM_PT;
-    /** Bloque 1: calibración fina */
-    private const BLOQUE1_HORA_BAJA_Y_PT = 1.0 * self::MM_PT;
-    private const BLOQUE2_HORA_BAJA_Y_PT = 3.0 * self::MM_PT;
-    private const BLOQUE3_HORA_BAJA_Y_PT = 3.0 * self::MM_PT;
-    /** Firma bloques 1 y 3 */
-    private const FIRMA_BLOQUE1_3_DX_PT = 3.0 * self::MM_PT;
-    private const FIRMA_BLOQUE1_BAJA_Y_PT = 5.0 * self::MM_PT;
-    private const FIRMA_BLOQUE3_BAJA_Y_PT = 2.0 * self::MM_PT;
-    private const FECHA_BAJA_Y_PT = 3.0 * self::MM_PT;
-    private const BLOQUE2_FECHA_SUBE_Y_PT = -2.0 * self::MM_PT;
-    private const BLOQUE3_FECHA_SUBE_Y_PT = -3.0 * self::MM_PT;
-    private const BLOQUE2_MARCA_DX_PT = 20.0 * self::MM_PT;
-    private const BLOQUE1_TIPO_BAJA_Y_PT = 5.0 * self::MM_PT;
+    /** Tamaño medido en PLATILLA ARRASTRE.pdf (Tf 7.92). */
+    private const FONT_SIZE = 7.9;
+    /** Bloque 1: bajar todo el texto 5 mm respecto a la plantilla. */
+    private const BLOQUE1_BAJA_Y_PT = 5.0 * 72.0 / 25.4;
+    /** false = solo texto (sin base PDF). true = fondo de calibración. */
+    private const USE_FONDO_CALIBRACION = false;
 
-    /** @var list<string> */
-    private const CAMPOS_HORA = ['hora_inicio', 'hora_fin'];
+    /**
+     * Posiciones absolutas por campo × [bloque1, bloque2, bloque3].
+     * Medido sobre PLATILLA ARRASTRE.pdf (texto de ejemplo).
+     *
+     * @var array<string, list<array{x: float, y: float, w: float, h: float}|null>>
+     */
+    private const POS = [
+        'folio_dictamen' => [ // Casilla No. aprobación UV (no folio de dictamen)
+            ['x' => 37.5, 'y' => 91.2, 'w' => 82.0, 'h' => 8.0],
+            ['x' => 37.5, 'y' => 402.3, 'w' => 82.0, 'h' => 8.0],
+            ['x' => 37.5, 'y' => 713.5, 'w' => 82.0, 'h' => 8.0],
+        ],
+        'uv_clave' => [
+            ['x' => 124.4, 'y' => 91.2, 'w' => 72.0, 'h' => 8.0],
+            ['x' => 124.4, 'y' => 402.3, 'w' => 72.0, 'h' => 8.0],
+            ['x' => 121.7, 'y' => 713.5, 'w' => 72.0, 'h' => 8.0],
+        ],
+        'resultado' => [
+            ['x' => 203.1, 'y' => 91.2, 'w' => 70.0, 'h' => 8.0],
+            ['x' => 203.1, 'y' => 402.3, 'w' => 70.0, 'h' => 8.0],
+            ['x' => 203.1, 'y' => 713.5, 'w' => 70.0, 'h' => 8.0],
+        ],
+        'tipo_servicio' => [
+            ['x' => 306.6, 'y' => 91.2, 'w' => 28.0, 'h' => 8.0],
+            ['x' => 306.6, 'y' => 402.3, 'w' => 28.0, 'h' => 8.0],
+            ['x' => 306.6, 'y' => 715.6, 'w' => 28.0, 'h' => 8.0],
+        ],
+        'fecha_inspeccion' => [
+            ['x' => 365.2, 'y' => 91.2, 'w' => 50.0, 'h' => 8.0],
+            ['x' => 365.2, 'y' => 402.3, 'w' => 50.0, 'h' => 8.0],
+            ['x' => 365.2, 'y' => 713.5, 'w' => 50.0, 'h' => 8.0],
+        ],
+        'hora_inicio' => [
+            ['x' => 424.5, 'y' => 95.5, 'w' => 28.0, 'h' => 8.0],
+            ['x' => 424.5, 'y' => 405.5, 'w' => 28.0, 'h' => 8.0],
+            ['x' => 424.5, 'y' => 718.5, 'w' => 28.0, 'h' => 8.0],
+        ],
+        'hora_fin' => [
+            ['x' => 455.7, 'y' => 95.5, 'w' => 28.0, 'h' => 8.0],
+            ['x' => 455.7, 'y' => 405.5, 'w' => 28.0, 'h' => 8.0],
+            ['x' => 455.7, 'y' => 718.5, 'w' => 28.0, 'h' => 8.0],
+        ],
+        'fecha_anterior' => [
+            ['x' => 504.7, 'y' => 91.2, 'w' => 50.0, 'h' => 8.0],
+            ['x' => 504.7, 'y' => 402.3, 'w' => 50.0, 'h' => 8.0],
+            ['x' => 504.7, 'y' => 713.5, 'w' => 50.0, 'h' => 8.0],
+        ],
 
-    /** @var list<string> */
-    private const CAMPOS_FECHA = [
-        'fecha_inspeccion',
-        'fecha_anterior',
+        'propietario_nombre' => [
+            ['x' => 64.8, 'y' => 144.0, 'w' => 180.0, 'h' => 9.0],
+            ['x' => 64.8, 'y' => 452.0, 'w' => 180.0, 'h' => 9.0],
+            ['x' => 64.8, 'y' => 768.4, 'w' => 180.0, 'h' => 9.0],
+        ],
+        'propietario_rfc' => [
+            ['x' => 251.9, 'y' => 129.4, 'w' => 90.0, 'h' => 9.0],
+            ['x' => 251.9, 'y' => 438.3, 'w' => 90.0, 'h' => 9.0],
+            ['x' => 251.9, 'y' => 754.7, 'w' => 90.0, 'h' => 9.0],
+        ],
+        'propietario_calle' => [
+            ['x' => 362.5, 'y' => 124.1, 'w' => 190.0, 'h' => 16.0],
+            ['x' => 362.5, 'y' => 433.1, 'w' => 190.0, 'h' => 16.0],
+            ['x' => 362.5, 'y' => 749.7, 'w' => 190.0, 'h' => 16.0],
+        ],
+        'propietario_loc' => [
+            ['x' => 262.2, 'y' => 159.6, 'w' => 120.0, 'h' => 9.0],
+            ['x' => 262.2, 'y' => 463.3, 'w' => 120.0, 'h' => 9.0],
+            ['x' => 262.2, 'y' => 782.8, 'w' => 120.0, 'h' => 9.0],
+        ],
+        'propietario_estado' => [
+            ['x' => 394.7, 'y' => 159.6, 'w' => 100.0, 'h' => 9.0],
+            ['x' => 394.7, 'y' => 463.3, 'w' => 100.0, 'h' => 9.0],
+            ['x' => 394.7, 'y' => 782.8, 'w' => 100.0, 'h' => 9.0],
+        ],
+        'propietario_cp' => [
+            ['x' => 502.8, 'y' => 159.6, 'w' => 40.0, 'h' => 9.0],
+            ['x' => 502.8, 'y' => 463.3, 'w' => 40.0, 'h' => 9.0],
+            ['x' => 502.8, 'y' => 782.8, 'w' => 40.0, 'h' => 9.0],
+        ],
+
+        'placas' => [
+            ['x' => 65.8, 'y' => 193.7, 'w' => 70.0, 'h' => 8.0],
+            ['x' => 65.8, 'y' => 508.2, 'w' => 70.0, 'h' => 8.0],
+            ['x' => 65.8, 'y' => 821.5, 'w' => 70.0, 'h' => 8.0],
+        ],
+        'niv' => [
+            ['x' => 159.2, 'y' => 193.3, 'w' => 130.0, 'h' => 8.0],
+            ['x' => 159.2, 'y' => 507.7, 'w' => 130.0, 'h' => 8.0],
+            ['x' => 159.2, 'y' => 821.0, 'w' => 130.0, 'h' => 8.0],
+        ],
+        'tipo_modalidad' => [
+            ['x' => 307.3, 'y' => 193.7, 'w' => 40.0, 'h' => 8.0],
+            ['x' => 307.8, 'y' => 508.2, 'w' => 40.0, 'h' => 8.0],
+            ['x' => 307.8, 'y' => 821.5, 'w' => 40.0, 'h' => 8.0],
+        ],
+        // B2: marca/año van en la fila de folio (layout distinto del escaneo).
+        'marca' => [
+            ['x' => 396.6, 'y' => 193.3, 'w' => 100.0, 'h' => 8.0],
+            ['x' => 172.4, 'y' => 535.1, 'w' => 70.0, 'h' => 8.0],
+            ['x' => 399.0, 'y' => 820.8, 'w' => 100.0, 'h' => 8.0],
+        ],
+        'anio' => [
+            ['x' => 504.9, 'y' => 193.7, 'w' => 40.0, 'h' => 8.0],
+            ['x' => 253.1, 'y' => 535.1, 'w' => 40.0, 'h' => 8.0],
+            ['x' => 504.9, 'y' => 821.5, 'w' => 40.0, 'h' => 8.0],
+        ],
+
+        'folio_tc' => [
+            ['x' => 139.5, 'y' => 222.5, 'w' => 70.0, 'h' => 8.0],
+            ['x' => 64.1, 'y' => 535.6, 'w' => 70.0, 'h' => 8.0],
+            ['x' => 139.5, 'y' => 849.1, 'w' => 70.0, 'h' => 8.0],
+        ],
+        'presentado' => [
+            ['x' => 301.1, 'y' => 223.0, 'w' => 45.0, 'h' => 8.0],
+            ['x' => 301.1, 'y' => 535.6, 'w' => 45.0, 'h' => 8.0],
+            ['x' => 301.1, 'y' => 849.6, 'w' => 45.0, 'h' => 8.0],
+        ],
+        // B2: sin casilla de observaciones en la plantilla.
+        'observaciones' => [
+            ['x' => 352.9, 'y' => 222.3, 'w' => 200.0, 'h' => 14.0],
+            null,
+            ['x' => 346.7, 'y' => 843.6, 'w' => 200.0, 'h' => 14.0],
+        ],
+
+        'tecnico_verificador' => [
+            ['x' => 284.3, 'y' => 251.1, 'w' => 160.0, 'h' => 10.0],
+            ['x' => 251.1, 'y' => 565.8, 'w' => 140.0, 'h' => 10.0],
+            ['x' => 299.9, 'y' => 878.9, 'w' => 160.0, 'h' => 10.0],
+        ],
+    ];
+
+    /** Firma por bloque (debajo del técnico; no viene en el PDF de texto). */
+    private const FIRMA = [
+        ['x' => 284.3, 'y' => 258.0, 'w' => 55.0, 'h' => 16.0],
+        ['x' => 251.1, 'y' => 572.0, 'w' => 55.0, 'h' => 16.0],
+        ['x' => 299.9, 'y' => 886.0, 'w' => 55.0, 'h' => 16.0],
     ];
 
     /**
-     * Posiciones medidas desde base_remolque.pdf (pt).
-     *
-     * @var list<array{key: string, positions: list<array{x: float, y: float, w: float, h: float, size?: float}>}>
+     * @param bool|null $conFondo null = usa USE_FONDO_CALIBRACION; true/false fuerza el modo
      */
-    private const CAMPOS = [
-        ['key' => 'folio_dictamen', 'positions' => [
-            ['x' => 37.3, 'y' => 81.6, 'w' => 69.0, 'h' => 10.0],
-            ['x' => 37.3, 'y' => 389.1, 'w' => 69.0, 'h' => 10.0],
-            ['x' => 37.3, 'y' => 703.0, 'w' => 69.0, 'h' => 10.0],
-        ]],
-        ['key' => 'uv_clave', 'positions' => [
-            ['x' => 135.8, 'y' => 81.6, 'w' => 50.0, 'h' => 10.0],
-            ['x' => 135.8, 'y' => 389.1, 'w' => 50.0, 'h' => 10.0],
-            ['x' => 132.4, 'y' => 703.0, 'w' => 50.0, 'h' => 10.0],
-        ]],
-        ['key' => 'resultado', 'positions' => [
-            ['x' => 215.2, 'y' => 81.6, 'w' => 42.0, 'h' => 10.0],
-            ['x' => 215.2, 'y' => 389.1, 'w' => 42.0, 'h' => 10.0],
-            ['x' => 215.2, 'y' => 703.0, 'w' => 42.0, 'h' => 10.0],
-        ]],
-        ['key' => 'tipo_servicio', 'positions' => [
-            ['x' => 305.0, 'y' => 81.6, 'w' => 14.0, 'h' => 10.0],
-            ['x' => 305.0, 'y' => 389.1, 'w' => 14.0, 'h' => 10.0],
-            ['x' => 305.0, 'y' => 703.0, 'w' => 14.0, 'h' => 10.0],
-        ]],
-        ['key' => 'fecha_inspeccion', 'positions' => [
-            ['x' => 369.3, 'y' => 81.6, 'w' => 42.0, 'h' => 10.0],
-            ['x' => 369.3, 'y' => 389.1, 'w' => 42.0, 'h' => 10.0],
-            ['x' => 353.4, 'y' => 703.0, 'w' => 42.0, 'h' => 10.0],
-        ]],
-        ['key' => 'fecha_anterior', 'positions' => [
-            ['x' => 499.8, 'y' => 81.6, 'w' => 42.0, 'h' => 10.0],
-            ['x' => 499.8, 'y' => 389.1, 'w' => 42.0, 'h' => 10.0],
-            ['x' => 499.8, 'y' => 703.0, 'w' => 42.0, 'h' => 10.0],
-        ]],
-        ['key' => 'hora_inicio', 'positions' => [
-            ['x' => 428.0, 'y' => 85.0, 'w' => 22.0, 'h' => 10.0, 'tap_w' => 24.0, 'tap_h' => 14.0],
-            ['x' => 428.0, 'y' => 393.1, 'w' => 22.0, 'h' => 10.0, 'tap_w' => 24.0, 'tap_h' => 14.0],
-            ['x' => 428.0, 'y' => 706.6, 'w' => 22.0, 'h' => 10.0, 'tap_w' => 24.0, 'tap_h' => 14.0],
-        ]],
-        ['key' => 'hora_fin', 'positions' => [
-            ['x' => 460.3, 'y' => 85.0, 'w' => 22.0, 'h' => 10.0, 'tap_w' => 24.0, 'tap_h' => 14.0],
-            ['x' => 460.3, 'y' => 393.1, 'w' => 22.0, 'h' => 10.0, 'tap_w' => 24.0, 'tap_h' => 14.0],
-            ['x' => 460.3, 'y' => 706.6, 'w' => 22.0, 'h' => 10.0, 'tap_w' => 24.0, 'tap_h' => 14.0],
-        ]],
-        ['key' => 'propietario_nombre', 'positions' => [
-            ['x' => 73.8, 'y' => 131.9, 'w' => 120.0, 'h' => 10.0],
-            ['x' => 73.8, 'y' => 437.3, 'w' => 120.0, 'h' => 10.0],
-            ['x' => 73.8, 'y' => 755.1, 'w' => 120.0, 'h' => 10.0],
-        ]],
-        ['key' => 'propietario_rfc', 'positions' => [
-            ['x' => 254.6, 'y' => 117.7, 'w' => 58.0, 'h' => 10.0],
-            ['x' => 254.6, 'y' => 423.9, 'w' => 58.0, 'h' => 10.0],
-            ['x' => 254.6, 'y' => 741.4, 'w' => 58.0, 'h' => 10.0],
-        ]],
-        ['key' => 'propietario_calle', 'positions' => [
-            ['x' => 401.4, 'y' => 117.7, 'w' => 80.0, 'h' => 10.0],
-            ['x' => 400.8, 'y' => 423.9, 'w' => 80.0, 'h' => 10.0],
-            ['x' => 400.8, 'y' => 741.4, 'w' => 80.0, 'h' => 10.0],
-        ]],
-        ['key' => 'propietario_loc', 'positions' => [
-            ['x' => 247.2, 'y' => 149.5, 'w' => 72.0, 'h' => 10.0],
-            ['x' => 247.2, 'y' => 451.2, 'w' => 72.0, 'h' => 10.0],
-            ['x' => 247.2, 'y' => 770.7, 'w' => 72.0, 'h' => 10.0],
-        ]],
-        ['key' => 'propietario_estado', 'positions' => [
-            ['x' => 369.1, 'y' => 149.5, 'w' => 115.0, 'h' => 10.0],
-            ['x' => 369.1, 'y' => 451.2, 'w' => 115.0, 'h' => 10.0],
-            ['x' => 369.1, 'y' => 770.7, 'w' => 115.0, 'h' => 10.0],
-        ]],
-        ['key' => 'propietario_cp', 'positions' => [
-            ['x' => 518.0, 'y' => 149.5, 'w' => 26.0, 'h' => 10.0],
-            ['x' => 500.4, 'y' => 451.2, 'w' => 26.0, 'h' => 10.0],
-            ['x' => 518.0, 'y' => 770.7, 'w' => 26.0, 'h' => 10.0],
-        ]],
-        ['key' => 'placas', 'positions' => [
-            ['x' => 65.6, 'y' => 185.7, 'w' => 40.0, 'h' => 10.0],
-            ['x' => 65.6, 'y' => 494.1, 'w' => 40.0, 'h' => 10.0],
-            ['x' => 65.6, 'y' => 805.8, 'w' => 40.0, 'h' => 10.0, 'tap_x' => 36.0, 'tap_y' => 804.5, 'tap_w' => 72.0, 'tap_h' => 14.0],
-        ]],
-        ['key' => 'niv', 'positions' => [
-            ['x' => 171.7, 'y' => 185.7, 'w' => 76.0, 'h' => 10.0],
-            ['x' => 171.7, 'y' => 493.6, 'w' => 76.0, 'h' => 10.0],
-            ['x' => 171.7, 'y' => 805.8, 'w' => 76.0, 'h' => 10.0],
-        ]],
-        ['key' => 'tipo_modalidad', 'positions' => [
-            ['x' => 305.8, 'y' => 174.6, 'w' => 14.0, 'h' => 10.0, 'tap_x' => 284.5, 'tap_y' => 174.6, 'tap_w' => 52.0, 'tap_h' => 24.0],
-            ['x' => 284.5, 'y' => 494.1, 'w' => 14.0, 'h' => 10.0, 'tap_w' => 78.0],
-            ['x' => 284.5, 'y' => 805.8, 'w' => 14.0, 'h' => 10.0, 'tap_w' => 78.0],
-        ]],
-        ['key' => 'marca', 'positions' => [
-            ['x' => 359.4, 'y' => 185.7, 'w' => 105.0, 'h' => 10.0],
-            ['x' => 132.4, 'y' => 521.4, 'w' => 105.0, 'h' => 10.0],
-            ['x' => 359.5, 'y' => 805.8, 'w' => 105.0, 'h' => 10.0],
-        ]],
-        ['key' => 'anio', 'positions' => [
-            ['x' => 522.1, 'y' => 185.7, 'w' => 22.0, 'h' => 10.0],
-            ['x' => 246.7, 'y' => 521.4, 'w' => 22.0, 'h' => 10.0],
-            ['x' => 502.4, 'y' => 806.1, 'w' => 22.0, 'h' => 10.0],
-        ]],
-        ['key' => 'folio_tc', 'positions' => [
-            ['x' => 92.6, 'y' => 210.3, 'w' => 40.0, 'h' => 10.0],
-            ['x' => 37.3, 'y' => 521.9, 'w' => 40.0, 'h' => 10.0],
-            ['x' => 92.6, 'y' => 835.5, 'w' => 40.0, 'h' => 10.0, 'tap_w' => 45.0, 'tap_h' => 14.0],
-        ]],
-        ['key' => 'odometro', 'positions' => [
-            ['x' => 214.4, 'y' => 210.3, 'w' => 36.0, 'h' => 10.0],
-            ['x' => 214.4, 'y' => 521.9, 'w' => 36.0, 'h' => 10.0],
-            ['x' => 214.4, 'y' => 835.5, 'w' => 36.0, 'h' => 10.0],
-        ]],
-        ['key' => 'presentado', 'positions' => [
-            ['x' => 299.2, 'y' => 210.7, 'w' => 28.0, 'h' => 10.0],
-            ['x' => 299.2, 'y' => 521.9, 'w' => 28.0, 'h' => 10.0],
-            ['x' => 299.2, 'y' => 835.2, 'w' => 28.0, 'h' => 10.0],
-        ]],
-        ['key' => 'tecnico_verificador', 'positions' => [
-            ['x' => 293.9, 'y' => 239.3, 'w' => 78.0, 'h' => 10.0],
-            ['x' => 251.5, 'y' => 552.7, 'w' => 78.0, 'h' => 10.0],
-            ['x' => 313.2, 'y' => 861.1, 'w' => 78.0, 'h' => 10.0],
-        ]],
-    ];
-
-    /** @var list<array{x: float, y: float, w: float, h: float}> */
-    private const FIRMA_POS = [
-        ['x' => 275.0, 'y' => 252.0, 'w' => 52.0, 'h' => 18.0],
-        ['x' => 275.0, 'y' => 578.0, 'w' => 52.0, 'h' => 18.0],
-        ['x' => 275.0, 'y' => 880.0, 'w' => 52.0, 'h' => 18.0],
-    ];
-
-    public static function generar(EntityInterface $inspeccion, ?string $firmaAbsoluta = null): string
-    {
-        $tpl = ROOT . DS . 'templates' . DS . 'Inspecciones' . DS . 'base_remolque.pdf';
-        if (!is_readable($tpl)) {
-            throw new \RuntimeException('Falta la plantilla templates/Inspecciones/base_remolque.pdf');
-        }
-
+    public static function generar(
+        EntityInterface $inspeccion,
+        ?string $firmaAbsoluta = null,
+        ?bool $conFondo = null
+    ): string {
         $valores = MotrizFpdiPdf::camposDesdeInspeccion($inspeccion);
+        $usarFondo = $conFondo ?? self::USE_FONDO_CALIBRACION;
 
         $pdf = new Fpdi('P', 'pt', [self::PAGE_W, self::PAGE_H]);
-        $pdf->SetAutoPageBreak(false);
+        $pdf->SetAutoPageBreak(false, 0);
         $pdf->SetMargins(0, 0, 0);
         $pdf->AddPage();
-        $pdf->setSourceFile($tpl);
-        $tplId = $pdf->importPage(1);
-        $pdf->useTemplate($tplId, 0, 0, self::PAGE_W, self::PAGE_H);
 
-        $pdf->SetTextColor(0, 0, 0);
-
-        foreach (self::CAMPOS as $def) {
-            foreach ($def['positions'] as $pos) {
-                self::taparDemo($pdf, $pos);
+        if ($usarFondo) {
+            self::ponerFondoCalibracion($pdf);
+            foreach (self::POS as $key => $bloques) {
+                $texto = $valores[$key] ?? '';
+                if ($texto === '') {
+                    continue;
+                }
+                foreach ($bloques as $b => $pos) {
+                    if ($pos === null) {
+                        continue;
+                    }
+                    self::taparValor($pdf, self::ajustarBloque($pos, $b, $key));
+                }
             }
+            foreach (self::FIRMA as $b => $pos) {
+                self::taparValor($pdf, self::ajustarBloque($pos, $b, 'firma'));
+            }
+            $pdf->SetTextColor(200, 0, 0);
+        } else {
+            $pdf->SetTextColor(0, 0, 0);
         }
-
-        // Demo «PLATAFORMA» del bloque 1 (si no se tapa del todo queda «AFORMA»).
-        $pdf->SetFillColor(255, 255, 255);
-        $pdf->Rect(285.5, 183.5, 50.0, 14.0, 'F');
-        // Demo «TRAM6897» bloque 3 (fila placas + folio T.C.).
-        $pdf->Rect(36.0, 804.5, 72.0, 14.0, 'F');
-        $pdf->Rect(90.5, 833.5, 45.0, 14.0, 'F');
 
         $tieneFirma = $firmaAbsoluta !== null && $firmaAbsoluta !== '' && is_readable($firmaAbsoluta);
         if ($tieneFirma) {
-            foreach (self::FIRMA_POS as $pos) {
-                self::taparDemo($pdf, $pos);
-            }
-            foreach (self::FIRMA_POS as $i => $pos) {
-                $dest = self::posicionFirma($pos, $i);
+            foreach (self::FIRMA as $b => $pos) {
+                $dest = self::ajustarBloque($pos, $b, 'firma');
                 $pdf->Image($firmaAbsoluta, $dest['x'], $dest['y'], $dest['w'], $dest['h']);
             }
         }
 
-        foreach (self::CAMPOS as $def) {
-            $texto = $valores[$def['key']] ?? '';
+        foreach (self::POS as $key => $bloques) {
+            $texto = $valores[$key] ?? '';
             if ($texto === '') {
                 continue;
             }
-            foreach ($def['positions'] as $i => $pos) {
-                self::escribirTexto($pdf, self::posicionAjustada($pos, $i, $def['key']), $texto);
+            foreach ($bloques as $b => $pos) {
+                if ($pos === null) {
+                    continue;
+                }
+                $pos = self::ajustarBloque($pos, $b, $key);
+                if ($key === 'observaciones' || $key === 'propietario_calle') {
+                    $pos['multiline'] = true;
+                }
+                self::escribirTexto($pdf, $pos, $texto);
             }
         }
 
         return $pdf->Output('S');
     }
 
-    /**
-     * @param array{x: float, y: float, w: float, h: float, size?: float} $pos
-     */
-    private static function posicionAjustada(array $pos, int $indiceBloque, string $campo = ''): array
+    private static function ponerFondoCalibracion(Fpdi $pdf): void
     {
-        if (in_array($campo, self::CAMPOS_HORA, true)) {
-            if ($indiceBloque === 0) {
-                $pos['y'] += self::BLOQUE1_HORA_BAJA_Y_PT;
-            } elseif ($indiceBloque === 1) {
-                $pos['y'] += self::BLOQUE2_HORA_BAJA_Y_PT;
-            } elseif ($indiceBloque === 2) {
-                $pos['y'] += self::BLOQUE3_HORA_BAJA_Y_PT;
+        $candidatos = [
+            ROOT . DS . 'tmp' . DS . 'PLATILLA ARRASTRE.pdf',
+            ROOT . DS . 'tmp' . DS . 'aRRASTRES.pdf',
+            ROOT . DS . 'templates' . DS . 'Inspecciones' . DS . 'base_remolque.pdf',
+        ];
+        $tpl = null;
+        foreach ($candidatos as $c) {
+            if (is_readable($c)) {
+                $tpl = $c;
+                break;
             }
-
-            return $pos;
         }
-
-        if ($indiceBloque === 0 && $campo === 'tipo_modalidad') {
-            $pos['y'] += self::BLOQUE1_TIPO_BAJA_Y_PT;
-
-            return $pos;
+        if ($tpl === null) {
+            return;
         }
+        $pdf->setSourceFile($tpl);
+        $tplId = $pdf->importPage(1);
+        $pdf->useTemplate($tplId, 0, 0, self::PAGE_W, self::PAGE_H);
+    }
 
-        if (in_array($campo, self::CAMPOS_FECHA, true)) {
-            $pos['y'] += self::BLOQUE_Y_OFFSET_PT;
-            $pos['y'] += self::FECHA_BAJA_Y_PT;
-            if ($indiceBloque === 0) {
-                $pos['x'] += self::BLOQUE1_FECHA_HORA_DX_PT;
-                $pos['y'] += self::BLOQUE1_FECHA_HORA_DY_PT;
-            } elseif ($indiceBloque === 1) {
-                $pos['y'] += self::BLOQUE2_FECHA_SUBE_Y_PT;
-            } elseif ($indiceBloque === 2) {
-                $pos['y'] += self::BLOQUE3_FECHA_SUBE_Y_PT;
-            }
-
-            return $pos;
+    /**
+     * @param array{x: float, y: float, w: float, h: float} $pos
+     * @return array{x: float, y: float, w: float, h: float}
+     */
+    private static function ajustarBloque(array $pos, int $bloque, string $campo = ''): array
+    {
+        if ($bloque === 0) {
+            $pos['y'] += self::BLOQUE1_BAJA_Y_PT;
         }
-
-        if ($campo === 'uv_clave') {
-            $pos['x'] += self::UV_CLAVE_DX_PT;
-        }
-
-        if ($indiceBloque === 1 && $campo === 'marca') {
-            $pos['x'] += self::BLOQUE2_MARCA_DX_PT;
-        }
-
-        $pos['y'] += self::BLOQUE_Y_OFFSET_PT;
 
         return $pos;
     }
@@ -285,47 +268,35 @@ final class RemolqueFpdiPdf
     /**
      * @param array{x: float, y: float, w: float, h: float} $pos
      */
-    private static function posicionFirma(array $pos, int $indiceBloque): array
+    private static function taparValor(Fpdi $pdf, array $pos): void
     {
-        if ($indiceBloque === 0) {
-            $pos['x'] += self::FIRMA_BLOQUE1_3_DX_PT;
-            $pos['y'] += self::FIRMA_BLOQUE1_BAJA_Y_PT;
-
-            return $pos;
-        }
-        if ($indiceBloque === 2) {
-            $pos['x'] += self::FIRMA_BLOQUE1_3_DX_PT;
-            $pos['y'] += self::FIRMA_BLOQUE3_BAJA_Y_PT;
-
-            return $pos;
-        }
-
-        return self::posicionAjustada($pos, $indiceBloque);
-    }
-
-    /**
-     * @param array{x: float, y: float, w: float, h: float, size?: float} $pos
-     */
-    private static function taparDemo(Fpdi $pdf, array $pos): void
-    {
-        $x = (float)($pos['tap_x'] ?? $pos['x']);
-        $y = (float)($pos['tap_y'] ?? $pos['y']);
-        $w = (float)($pos['tap_w'] ?? $pos['w']);
-        $h = (float)($pos['tap_h'] ?? $pos['h']);
+        $h = max(4.5, (float)$pos['h']);
+        $top = $pos['y'] - $h + 1.0;
         $pdf->SetFillColor(255, 255, 255);
-        $pdf->Rect($x - 1.0, $y - 1.0, $w + 2.0, $h + 2.0, 'F');
+        $pdf->Rect($pos['x'] - 0.5, $top, $pos['w'] + 1.0, $h, 'F');
     }
 
     /**
-     * @param array{x: float, y: float, w: float, h: float, size?: float} $pos
+     * @param array{x: float, y: float, w: float, h: float, size?: float, multiline?: bool} $pos
      */
     private static function escribirTexto(Fpdi $pdf, array $pos, string $texto): void
     {
         $size = $pos['size'] ?? self::FONT_SIZE;
         $pdf->SetFont('Helvetica', '', $size);
-        $pdf->SetTextColor(0, 0, 0);
-        $pdf->SetXY($pos['x'], $pos['y'] + $size * 0.75);
-        $pdf->Cell($pos['w'], 0, self::pdfTxt($texto), 0, 0, 'L');
+        $txt = self::pdfTxt($texto);
+
+        if (!empty($pos['multiline'])) {
+            $lineH = $size + 1.2;
+            $xBefore = $pdf->GetX();
+            $yBefore = $pdf->GetY();
+            $pdf->SetXY($pos['x'], $pos['y'] - $size * 0.85);
+            $pdf->MultiCell($pos['w'], $lineH, $txt);
+            $pdf->SetXY($xBefore, $yBefore);
+
+            return;
+        }
+
+        $pdf->Text($pos['x'], $pos['y'], $txt);
     }
 
     private static function pdfTxt(string $texto): string

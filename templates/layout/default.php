@@ -169,11 +169,23 @@ $sbLogoImgClass = 'sb-logo-img' . (substr($cesdiaLogoFile, -4) === '.svg' ? ' sb
       </svg>
       <span>Técnicos</span>
     </a>
-    <a href="<?= $this->Url->build('/unidades-inspeccion') ?>" class="sb-link" data-menu="<?= h('Unidades') ?>">
+    <a href="<?= $this->Url->build('/unidades-inspeccion') ?>"
+       class="sb-link <?= $this->request->getParam('controller') === 'UnidadesInspeccion' ? 'active' : '' ?>"
+       data-menu="<?= h('Unidades / Sello UV') ?>">
       <svg class="sb-icon" viewBox="0 0 16 16" fill="none">
         <path d="M2 12V5l6-3 6 3v7l-6 3-6-3z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/>
+        <circle cx="8" cy="8.5" r="2.2" stroke="currentColor" stroke-width="1.2"/>
       </svg>
-      <span>Unidades</span>
+      <span>Unidades / Sello UV</span>
+    </a>
+    <a href="<?= $this->Url->build('/marcas-vehiculo') ?>"
+       class="sb-link <?= $this->request->getParam('controller') === 'MarcasVehiculo' ? 'active' : '' ?>"
+       data-menu="<?= h('Marcas') ?>">
+      <svg class="sb-icon" viewBox="0 0 16 16" fill="none">
+        <path d="M2 4h12M2 8h12M2 12h8" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+        <circle cx="12" cy="12" r="2" stroke="currentColor" stroke-width="1.4"/>
+      </svg>
+      <span>Marcas</span>
     </a>
 
     <div class="sb-section">Administración</div>

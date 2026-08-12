@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace App\Export;
 
 use App\Pdf\RemolquePdfBuilder;
+use App\Validation\TipoVehiculoRequisitos;
 use Cake\Datasource\EntityInterface;
 use Cake\Datasource\ResultSetInterface;
 use PhpOffice\PhpSpreadsheet\IOFactory;
@@ -62,13 +63,9 @@ final class SctExcelExporter
         if ($i->get('odometro') !== null && $i->get('odometro') !== '') {
             $odometro = (string)(int)$i->get('odometro');
         }
-        $munProp = $prop !== null ? trim((string)($prop->municipio ?? '')) : '';
-        if ($munProp !== '' && stripos($munProp, 'LOC.') !== 0) {
-            $munProp = 'LOC. ' . $munProp;
-        }
 
         [$capColL, $capColM, $capColN] = static::capacidadEnColumnasLMN($veh);
-        $domicilioResumido = static::domicilioPropietarioUnaCelda($prop, $munProp);
+        $numEjes = static::numeroEjesVehiculo($veh);
 
         $sheet->setCellValue([1, $row], RemolquePdfBuilder::numeroAprobacionUnidad($uni instanceof EntityInterface ? $uni : null));
         $sheet->setCellValue([2, $row], (string)($i->folio_dictamen ?? ''));
@@ -86,14 +83,42 @@ final class SctExcelExporter
         $sheet->setCellValue([12, $row], $capColL);
         $sheet->setCellValue([13, $row], $capColM);
         $sheet->setCellValue([14, $row], $capColN);
-        // O=15: domicilio del propietario (calle, municipio, estado, C.P. en una celda).
-        $sheet->setCellValue([15, $row], $domicilioResumido);
+        // O=15: número de ejes (plantilla SCT).
+        $sheet->setCellValue([15, $row], $numEjes);
         $sheet->setCellValue([16, $row], $veh !== null ? (string)($veh->placas ?? '') : '');
         $sheet->setCellValue([17, $row], $veh !== null ? (string)($veh->folio_tc ?? '') : '');
         $sheet->setCellValue([18, $row], static::abreviaturaTipoServicio($veh !== null ? ($veh->tipo_servicio ?? null) : null));
         $sheet->setCellValue([19, $row], static::letraVehiculoPresentado($i->vehiculo_presentado ?? null));
         $sheet->setCellValue([20, $row], (string)($tec->nombre ?? ''));
         $sheet->setCellValue([21, $row], strtoupper(substr((string)($i->resultado ?? ''), 0, 1)));
+    }
+
+    /**
+     * Número de ejes para columna O (15) de la plantilla SCT.
+     * Usa vehiculos.ejes; si falta, lo deriva del tipo de vehículo.
+     */
+    private static function numeroEjesVehiculo(?EntityInterface $veh): string
+    {
+        if ($veh === null || !method_exists($veh, 'get')) {
+            return '';
+        }
+        $raw = $veh->get('ejes');
+        if ($raw !== null && $raw !== '' && is_numeric($raw)) {
+            $n = (int)$raw;
+            if ($n >= 1 && $n <= 6) {
+                return (string)$n;
+            }
+        }
+        $codigo = static::codigoTipoVehiculo($veh->get('tipo_vehiculo') !== null ? (string)$veh->get('tipo_vehiculo') : null);
+        if ($codigo === '') {
+            return '';
+        }
+        $def = TipoVehiculoRequisitos::definicion($codigo);
+        if ($def === null) {
+            return '';
+        }
+
+        return (string)(int)$def['ejes'];
     }
 
     /**
@@ -117,8 +142,10 @@ final class SctExcelExporter
             return $vacio;
         }
         $esKg = $tipo === 'KILOGRAMOS'
+            || $tipo === 'TONELADAS'
             || str_contains($tipo, 'KILOGRAM')
-            || str_contains($tipo, 'KILO');
+            || str_contains($tipo, 'KILO')
+            || str_contains($tipo, 'TONELAD');
         $esL = $tipo === 'LITROS'
             || str_contains($tipo, 'LITRO');
         $esP = $tipo === 'PASAJEROS'
@@ -151,31 +178,6 @@ final class SctExcelExporter
         }
 
         return trim((string)$cant);
-    }
-
-    private static function domicilioPropietarioUnaCelda(?EntityInterface $prop, string $munConLoc): string
-    {
-        if ($prop === null || !method_exists($prop, 'get')) {
-            return '';
-        }
-        $partes = [];
-        $calle = trim((string)($prop->get('calle_numero') ?? ''));
-        if ($calle !== '') {
-            $partes[] = $calle;
-        }
-        if ($munConLoc !== '') {
-            $partes[] = $munConLoc;
-        }
-        $est = trim((string)($prop->get('estado') ?? ''));
-        if ($est !== '') {
-            $partes[] = $est;
-        }
-        $cp = trim((string)($prop->get('codigo_postal') ?? ''));
-        if ($cp !== '') {
-            $partes[] = $cp;
-        }
-
-        return implode(', ', $partes);
     }
 
     private static function codigoTipoVehiculo(?string $tv): string

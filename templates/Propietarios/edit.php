@@ -71,7 +71,16 @@ if ($estAct !== '' && !isset($estadosOpts[$estAct])) {
       <div class="cesdia-form-group" style="margin-top:12px;margin-bottom:0">
         <?= $this->Form->control('codigo_postal', [
             'label' => ['class' => 'cesdia-label', 'text' => 'Código postal'],
-            'class' => 'cesdia-input',
+            'class' => 'cesdia-input cesdia-codigo-postal',
+            'type' => 'text',
+            'inputmode' => 'numeric',
+            'pattern' => '[0-9]{5}',
+            'maxlength' => 5,
+            'minlength' => 5,
+            'autocomplete' => 'postal-code',
+            'placeholder' => '5 dígitos',
+            'title' => 'Exactamente 5 dígitos numéricos',
+            'required' => true,
         ]) ?>
       </div>
     </div>
@@ -105,3 +114,4 @@ if ($estAct !== '' && !isset($estadosOpts[$estAct])) {
     <?= $this->Form->end() ?>
   </div>
 </div>
+<?= $this->element('codigo_postal_input_js') ?>

@@ -34,6 +34,12 @@ class OrdenesServicioTable extends Table
             ->allowEmptyString('inspeccion_id')
             ->allowEmptyString('notas');
 
+        if ($this->getSchema()->hasColumn('numero_equipo')) {
+            $validator
+                ->notEmptyString('numero_equipo', 'Indique el número de máquina (equipo) con que se inspecciona.')
+                ->maxLength('numero_equipo', 25, 'Máximo 25 caracteres.');
+        }
+
         return $validator;
     }
 }

@@ -1,7 +1,11 @@
 <?php
+declare(strict_types=1);
+
 namespace App\Model\Table;
 
 use App\Validation\InspeccionMexico;
+use ArrayObject;
+use Cake\Event\EventInterface;
 use Cake\ORM\Table;
 use Cake\Validation\Validator;
 
@@ -28,5 +32,27 @@ class InspeccionAcoplamientoTable extends Table
         }
 
         return $validator;
+    }
+
+    /**
+     * Quinta fija vs oscilante: excluyentes (o una o la otra).
+     * Si ambas vienen calificadas (CUMPLE/NO CUMPLE), se prioriza la fija y la oscilante pasa a N/A.
+     */
+    public function beforeMarshal(EventInterface $event, ArrayObject $data, ArrayObject $options): void
+    {
+        $fija = strtoupper(trim((string)($data['quinta_rueda'] ?? '')));
+        $osc = strtoupper(trim((string)($data['quinta_rueda_oscilante'] ?? '')));
+        $califica = static fn (string $v): bool => $v === 'CUMPLE' || $v === 'NO CUMPLE';
+
+        if ($califica($fija) && $califica($osc)) {
+            $data['quinta_rueda_oscilante'] = 'N/A';
+
+            return;
+        }
+        if ($califica($fija) && $osc === '') {
+            $data['quinta_rueda_oscilante'] = 'N/A';
+        } elseif ($califica($osc) && $fija === '') {
+            $data['quinta_rueda'] = 'N/A';
+        }
     }
 }

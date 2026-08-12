@@ -32,6 +32,16 @@ return static function (RouteBuilder $routes): void {
             'action' => 'validarFolio',
         ]);
 
+        $builder->connect('/inspecciones/agregar-marca', [
+            'controller' => 'Inspecciones',
+            'action' => 'agregarMarca',
+        ]);
+
+        $builder->connect('/inspecciones/buscar-marca', [
+            'controller' => 'Inspecciones',
+            'action' => 'buscarMarca',
+        ]);
+
         // Plantilla / PDF motriz: /inspecciones/html-motriz/{id} (no /inspecciones/{id}/html-motriz)
         $builder->connect('/inspecciones/html-motriz/{id}', [
             'controller' => 'Inspecciones',
@@ -72,7 +82,20 @@ return static function (RouteBuilder $routes): void {
         $builder->resources('Tecnicos');
         $builder->resources('Propietarios');
         $builder->resources('Vehiculos');
+        $builder->connect('/unidades-inspeccion/sello/{id}', [
+            'controller' => 'UnidadesInspeccion',
+            'action' => 'sello',
+        ], ['id' => '\d+', 'pass' => ['id'], '_name' => 'unidadesInspeccionSello']);
         $builder->resources('UnidadesInspeccion');
+        $builder->connect('/marcas-vehiculo/importar', [
+            'controller' => 'MarcasVehiculo',
+            'action' => 'importar',
+        ]);
+        $builder->connect('/marcas-vehiculo/buscar', [
+            'controller' => 'MarcasVehiculo',
+            'action' => 'buscar',
+        ]);
+        $builder->resources('MarcasVehiculo');
         $builder->resources('OrdenesServicio');
 
         $builder->fallbacks(DashedRoute::class);

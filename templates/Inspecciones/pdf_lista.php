@@ -11,7 +11,8 @@ $v  = $inspeccion->vehiculo ?? null;
 $t  = $inspeccion->tecnico ?? null;
 $u  = $inspeccion->unidades_inspeccion ?? ($inspeccion->unidad_inspeccion ?? null);
 $il = $inspeccion->inspeccion_iluminacion ?? null;
-$ch = $inspeccion->inspeccion_chasis ?? null;
+// Compat: Inflector legacy podía exponer inspeccion_chasi / inspeccion_frenos.
+$ch = $inspeccion->inspeccion_chasis ?? $inspeccion->inspeccion_chasi ?? null;
 $su = $inspeccion->inspeccion_suspension ?? null;
 $sa = $inspeccion->inspeccion_sistema_aire ?? null;
 $fr = $inspeccion->inspeccion_frenos ?? $inspeccion->inspeccion_freno ?? null;
@@ -28,6 +29,7 @@ $modeloTxt = $v ? trim(implode(' ', array_filter([(string)($v->marca ?? ''), (st
 $serieTxt  = $v && !empty($v->niv) ? h($v->niv) : '—';
 $placasTxt = $v && !empty($v->placas) ? h($v->placas) : '—';
 $uvNombre  = $u && !empty($u->nombre) ? h($u->nombre) : 'CESDIA';
+$uvAprobacion = h(\App\Pdf\RemolquePdfBuilder::numeroAprobacionUnidad($u instanceof \Cake\Datasource\EntityInterface ? $u : null));
 $folioRawPdf = \App\Validation\Nom068Formato::folioImpreso(
     (string)($inspeccion->folio_dictamen ?? ''),
     (string)($inspeccion->tipo_formulario ?? '')
@@ -53,6 +55,21 @@ if (!empty($inspeccion->inspeccion_observaciones)) {
 }
 $volanteCm = $inspeccion->volante_cm ?? null;
 $holguraCm = $inspeccion->holgura_cm ?? null;
+$fmtCmPdfVal = static function ($v): string {
+    if ($v === null || $v === '') {
+        return '';
+    }
+    if (!is_numeric($v)) {
+        return trim((string)$v);
+    }
+    $n = (float)$v;
+
+    return fmod($n, 1.0) === 0.0
+        ? (string)(int)$n
+        : rtrim(rtrim(sprintf('%.2F', $n), '0'), '.');
+};
+$volanteCmTxt = $fmtCmPdfVal($volanteCm);
+$holguraCmTxt = $fmtCmPdfVal($holguraCm);
 
 /* ── Convierte valor de BD a marcas Aprobado / Rechazado / N/A (columnas del PDF) ── */
 $mk = static function (?string $val): array {
@@ -69,10 +86,14 @@ $mk = static function (?string $val): array {
 $llBy = [];
 foreach ($inspeccion->inspeccion_llantas ?? [] as $llEnt) {
     $n = (int)($llEnt->numero_llanta ?? 0);
-    $p = strtoupper(trim((string)($llEnt->posicion ?? '')));
-    if ($n >= 1 && $n <= 8 && $p !== '') {
-        $llBy[$n][$p] = $llEnt;
+    if ($n < 1 || $n > 12) {
+        continue;
     }
+    $p = strtoupper(trim((string)($llEnt->posicion ?? '')));
+    if ($p === '') {
+        $p = 'EXTERNA';
+    }
+    $llBy[$n][$p] = $llEnt;
 }
 
 $llVal = static function (array $by, int $num, string $pos, string $field): ?string {
@@ -176,7 +197,11 @@ $tireRows = static function (
         ['nom'=>'78','d'=>'','v'=>'✓','m'=>'', 'txt'=>'SUJETADORES, TUERCAS BIRLOS', 'val'=>$lg('rin_sujetadores')],
     ];
     if ($conArtilleria) {
-        $filas[] = ['nom'=>'78','d'=>'','v'=>'✓','m'=>'', 'txt'=>'RIN DE ARTILLERÍA, PIEZAS MÚLTIPLES, CONDICIÓN, ABRAZADERAS, ANILLOS DE SEGURIDAD', 'val'=>$lg('rin_artilleria')];
+        $filas[] = [
+            'nom'=>'78','d'=>'','v'=>'✓','m'=>'',
+            'txt'=>'RIN DE ARTILLERÍA, PIEZAS MÚLTIPLES, CONDICIÓN, ABRAZADERAS, ANILLOS DE SEGURIDAD',
+            'val'=>\App\Validation\InspeccionMexico::valorRinArtilleria($lg('rin_condicion'), $lg('rin_artilleria')),
+        ];
     }
 
     return $filas;
@@ -200,7 +225,7 @@ $tireRowsF19 = static function (array $spec) use ($LG, $L): array {
         ['nom'=>'78','d'=>'','v'=>'✓','m'=>'', 'txt'=>$rinTit, 'val'=>$lg('rin_condicion')],
         ['nom'=>'78','d'=>'','v'=>'✓','m'=>'', 'txt'=>'CONDICION, CONCORDANCIA, BOQUILLA VALVULA DE AIRE', 'val'=>$lg('rin_condicion')],
         ['nom'=>'78','d'=>'','v'=>'✓','m'=>'', 'txt'=>'SUJETADORES, TUERCAS BIRLOS', 'val'=>$lg('rin_sujetadores')],
-        ['nom'=>'78','d'=>'','v'=>'✓','m'=>'', 'txt'=>'RIN DE ARTILLERIA, PIEZAS MULTIPLES, CONDICION, ABRAZADERAS, ANILLOS DE SEGURIDAD', 'val'=>$lg('rin_artilleria')],
+        ['nom'=>'78','d'=>'','v'=>'✓','m'=>'', 'txt'=>'RIN DE ARTILLERIA, PIEZAS MULTIPLES, CONDICION, ABRAZADERAS, ANILLOS DE SEGURIDAD', 'val'=>\App\Validation\InspeccionMexico::valorRinArtilleria($lg('rin_condicion'), $lg('rin_artilleria'))],
     ];
 };
 
@@ -222,51 +247,66 @@ $dollyRinPar = static fn (int $gn, string $par): string => match ($gn) {
     7 => '7/8',
     default => $par,
 };
-foreach ($gruposNum as $idx => $gn) {
-    $par = $pairLabel($idx, $gn);
-    if ($esCabina && $idx === 0) {
-        $llDelanteras = array_merge($llDelanteras, $tireRows($gn, $par, true));
-    } elseif ($esDolly) {
-        $posSlot = '';
-        foreach ($slotsLlantas as $slot) {
-            if ((int)$slot[0] === $gn) {
-                $posSlot = (string)$slot[1];
-                break;
-            }
+
+/*
+ * F-17 / F-18: grupos de llanta según llantas activas del tipo
+ * (C2L→1/2+3/4; C2→…5/6; C3→…9/10). No imprimir pares vacíos.
+ */
+if ($tipoFormulario === 'F17_TRACTO' || $tipoFormulario === 'F18_CAMION') {
+    // Numeración captura: 1 izq / 2 der; 3-4 izq / 5-6 der; 7-8 izq / 9-10 der.
+    // El checklist del PDF agrupa por pares oficiales (1/2, 3/4, …) leyendo la 1.ª del par.
+    $maxLlActivas = (int)(\App\Validation\TipoVehiculoRequisitos::definicion($tipoVehCod)['llantas'] ?? 0);
+    $gruposFormatoMotriz = [
+        ['gn' => 1, 'dir' => true,  'par' => '1/2',  'titulo' => null, 'pos' => null],
+        ['gn' => 3, 'dir' => false, 'par' => '3/4',  'titulo' => 'LLANTA 3/4 EXTERIOR ESPESOR MÍNIMO 1,6 mm',  'pos' => null],
+        ['gn' => 5, 'dir' => false, 'par' => '5/6',  'titulo' => 'LLANTA 5/6 INTERIOR ESPESOR MÍNIMO 1,6 mm', 'pos' => null],
+        ['gn' => 7, 'dir' => false, 'par' => '7/8',  'titulo' => 'LLANTA 7/8 EXTERIOR ESPESOR MÍNIMO 1,6 mm',  'pos' => null],
+        ['gn' => 9, 'dir' => false, 'par' => '9/10', 'titulo' => 'LLANTA 9/10 INTERIOR ESPESOR MÍNIMO 1,6 mm', 'pos' => null],
+    ];
+    foreach ($gruposFormatoMotriz as $spec) {
+        $gn = (int)$spec['gn'];
+        if ($maxLlActivas > 0 && $gn > $maxLlActivas) {
+            continue;
         }
-        $tituloDolly = \App\Validation\TipoVehiculoRequisitos::etiquetaLlanta($tipoVehCod, $gn, $posSlot)
-            . ' ESPESOR MÍNIMO 1,6 mm';
-        $llTraseras = array_merge(
-            $llTraseras,
-            $tireRows($gn, $par, false, $dollyRinPar($gn, $par), false, $tituloDolly)
+        $rows = $tireRows(
+            $gn,
+            (string)$spec['par'],
+            (bool)$spec['dir'],
+            (string)$spec['par'],
+            true,
+            $spec['titulo'],
+            $spec['pos']
         );
-    } elseif ($esAutobus && $idx > 0) {
-        if ($gn === 4) {
-            $llTraseras = array_merge(
-                $llTraseras,
-                $tireRows(4, '7', false, '7', true, 'LLANTA 7 DISCO ESPESOR MÍNIMO 1,6 mm', 'EXTERNA'),
-                $tireRows(4, '8', false, '8', true, 'LLANTA 8 ESPESOR MÍNIMO 1,6 mm', 'INTERNA')
-            );
+        if ($spec['dir']) {
+            $llDelanteras = array_merge($llDelanteras, $rows);
         } else {
-            $tituloAutobus = match ($gn) {
-                2 => 'LLANTA 3/4 EXTERIOR ESPESOR MÍNIMO 1,6 mm',
-                3 => 'LLANTA 5/6 INTERIOR ESPESOR MÍNIMO 1,6 mm',
-                default => null,
-            };
-            $posAutobus = match ($gn) {
-                2 => 'EXTERNA',
-                3 => 'INTERNA',
-                default => null,
-            };
+            $llTraseras = array_merge($llTraseras, $rows);
+        }
+    }
+} else {
+    foreach ($gruposNum as $idx => $gn) {
+        $par = $pairLabel($idx, $gn);
+        if ($esCabina && $idx === 0) {
+            $llDelanteras = array_merge($llDelanteras, $tireRows($gn, $par, true));
+        } elseif ($esDolly) {
+            $posSlot = '';
+            foreach ($slotsLlantas as $slot) {
+                if ((int)$slot[0] === $gn) {
+                    $posSlot = (string)$slot[1];
+                    break;
+                }
+            }
+            $tituloDolly = \App\Validation\TipoVehiculoRequisitos::etiquetaLlanta($tipoVehCod, $gn, $posSlot)
+                . ' ESPESOR MÍNIMO 1,6 mm';
             $llTraseras = array_merge(
                 $llTraseras,
-                $tireRows($gn, $par, false, $par, true, $tituloAutobus, $posAutobus)
+                $tireRows($gn, $par, false, $dollyRinPar($gn, $par), false, $tituloDolly)
             );
+        } elseif ($esRemolque) {
+            // Se procesa después del bucle con $gruposLlantaF19.
+        } else {
+            $llTraseras = array_merge($llTraseras, $tireRows($gn, $par, false));
         }
-    } elseif ($esRemolque) {
-        // Se procesa después del bucle con $gruposLlantaF19.
-    } else {
-        $llTraseras = array_merge($llTraseras, $tireRows($gn, $par, false));
     }
 }
 if ($esRemolque) {
@@ -290,24 +330,26 @@ $secLuces = [
   ['nom'=>'53','d'=>'','v'=>'✓','m'=>'','txt'=>'LUZ QUE ILUMINAN DURANTE EL DÍA SI CUENTA DE COLOR BLANCO O AMARILLO', 'val'=> $il?->luz_diurna],
   ['nom'=>'53','d'=>'','v'=>'✓','m'=>'','txt'=>'LUCES TRASERAS, ALTURA 38 Y 180 cm',                                   'val'=> $il?->luces_traseras],
   ['nom'=>'53','d'=>'','v'=>'✓','m'=>'','txt'=>'DIRECCIONALES 2 o 4 VIENDO ADELANTE COLOR AMBAR',                      'val'=> $il?->direccionales],
-  ['nom'=>'53','d'=>'✓','v'=>'','m'=>'','txt'=>'LUCES DE PELIGRO 2 o 4 VIENDO HACIA ADELANTE AMBAR TRASERAS ROJAS',    'val'=> $il?->luces_peligro],
+  // Oficial F-17: sin marca D/V/M en este renglón.
+  ['nom'=>'53','d'=>'','v'=>'','m'=>'','txt'=>'LUCES DE PELIGRO 2 o 4 VIENDO HACIA ADELANTE AMBAR TRASERAS ROJAS',    'val'=> $il?->luces_peligro],
   ['nom'=>'53','d'=>'','v'=>'✓','m'=>'','txt'=>'LUCES INTERMITENTES / DE PELIGRO',                                     'val'=> $il?->luces_intermitentes],
   ['nom'=>'53','d'=>'','v'=>'✓','m'=>'','txt'=>'LUZ DE NIEBLA OPERADAS CON LUZ BAJA',                                  'val'=> $il?->luz_niebla],
-  ['nom'=>'65','d'=>'','v'=>'✓','m'=>'','txt'=>'PARABRISAS: GRIETAS, DESPOSTILLADO EN FORMA DE ESTRELLA DE 12.5 mm, DECOLORACIÓN MAYOR AL 10%, POLARIZADO QUE NO ES DE FÁBRICA, OBSTRUCCIONES, CONDICIÓN', 'val'=> $il?->parabrisas],
-  ['nom'=>'65','d'=>'','v'=>'✓','m'=>'','txt'=>'PARABRISAS TIPO AS-1 o AS 10',                                         'val'=> $il?->parabrisas_tipo],
+  ['nom'=>'65','d'=>'','v'=>'✓','m'=>'','txt'=>'PARABRISAS: GRIETAS, DESPOSTILLADO EN FORMA DE ESTRELLA DE 12.5 mm DE DIÁMETRO EN LA BARRIDA DEL LIMPIAPARABRISAS, DECOLORACIÓN MAYOR AL 10% DE TODA LA SUPERFICIE, POLARIZADO QUE NO ES DE FÁBRICA, OBSTRUCCIONES, CONDICIÓN', 'val'=> $il?->parabrisas],
+  // Oficial F-17: sin marca D/V/M en TIPO AS-1.
+  ['nom'=>'65','d'=>'','v'=>'','m'=>'','txt'=>'Tipo: ' . \App\Validation\InspeccionMexico::etiquetaParabrisasTipo($il?->parabrisas_tipo), 'val'=> \App\Validation\InspeccionMexico::marcaParabrisasTipo($il?->parabrisas_tipo)],
   ['nom'=>'61','d'=>'','v'=>'✓','m'=>'','txt'=>'VENTANAS LATERALES, CONDICIÓN, TIPO, ENTINTADO (POLARIZADO)',          'val'=> $il?->ventanas_laterales],
   ['nom'=>'62','d'=>'','v'=>'✓','m'=>'','txt'=>'VENTANA POSTERIOR, CONDICIÓN',                                         'val'=> $il?->ventana_posterior],
   ['nom'=>'72','d'=>'','v'=>'✓','m'=>'','txt'=>'LIMPIA PARABRISAS: FUNCIONAMIENTO, PLUMAS DE HULE, BRAZOS',            'val'=> $il?->limpiaparabrisas],
   ['nom'=>'72','d'=>'','v'=>'✓','m'=>'','txt'=>'INYECTORES DE AGUA (SI CUENTA DE FÁBRICA) FALTANTES, NO FUNCIONAN',    'val'=> $il?->inyectores_agua],
   ['nom'=>'62','d'=>'','v'=>'✓','m'=>'','txt'=>'DEFENSA DELANTERA, FLOJA, FALTANTE, ROTA',                             'val'=> $il?->defensa_delantera],
-  ['nom'=>'75','d'=>'','v'=>'✓','m'=>'','txt'=>'PLACA DE IDENTIFICACIÓN',                                              'val'=> $il?->placa_identificacion],
+  ['nom'=>'75','d'=>'','v'=>'✓','m'=>'','txt'=>'PLACA DE IDENTIFICACIÓN',                                              'val'=> \App\Validation\InspeccionMexico::valorPlacaIdentificacion($il)],
 ];
 
 // PARTE TRASERA — cabina.
 $secTraseraCabina = [
   ['nom'=>'53','d'=>'','v'=>'✓','m'=>'','txt'=>'LUCES DE FRENO',                                  'val'=> $il?->luces_freno],
   ['nom'=>'53','d'=>'','v'=>'✓','m'=>'','txt'=>'LUCES DE REVERSA',                                'val'=> $il?->luces_reversa],
-  ['nom'=>'52','d'=>'','v'=>'✓','m'=>'','txt'=>'LUZ DE PLACA TRASERA, PLACA DE IDENTIFICACIÓN',   'val'=> $il?->luz_placa_trasera],
+  ['nom'=>'52','d'=>'','v'=>'✓','m'=>'','txt'=>'LUZ DE PLACA TRASERA, PLACA DE IDENTIFICACIÓN',   'val'=> \App\Validation\InspeccionMexico::valorLuzPlacaTrasera($il)],
 ];
 
 // LUCES — remolque F-19 (solo demarcadoras laterales).
@@ -321,7 +363,7 @@ $secParteTraseraRemolque = [
   ['nom'=>'53','d'=>'','v'=>'✓','m'=>'','txt'=>'LUCES DE PELIGRO',                'val'=> $il?->luces_intermitentes],
   ['nom'=>'53','d'=>'','v'=>'✓','m'=>'','txt'=>'LUCES DE REVERSA',               'val'=> $il?->luces_reversa],
   ['nom'=>'53','d'=>'','v'=>'✓','m'=>'','txt'=>'LUCES DE GALIBO TRASERAS',        'val'=> $il?->galibo_trasero],
-  ['nom'=>'52','d'=>'','v'=>'✓','m'=>'','txt'=>'LUZ DE PLACA TRASERA, PLACA DE IDENTIFICACION', 'val'=> $il?->luz_placa_trasera],
+  ['nom'=>'52','d'=>'','v'=>'✓','m'=>'','txt'=>'LUZ DE PLACA TRASERA, PLACA DE IDENTIFICACION', 'val'=> \App\Validation\InspeccionMexico::valorLuzPlacaTrasera($il)],
 ];
 
 // PARTE TRASERA — dolly.
@@ -349,13 +391,14 @@ $secSuspDelantera = [
   ['nom'=>'21','d'=>'','v'=>'✓','m'=>'','txt'=>'AMORTIGUADORES: CONDICIÓN, MONTURA, BUJES, ELEMENTOS DE SUJECIÓN, POSICIONAMIENTO', 'val'=> $amortDelantera],
 ];
 
-// SISTEMA DE DIRECCIÓN — cabina.
+// SISTEMA DE DIRECCIÓN — cabina. Medición cm (P1.3) junto al concepto oficial.
 $secDireccion = [
   ['nom'=>'45','d'=>'','v'=>'✓','m'=>'✓','txt'=>'VOLANTE',                                                              'val'=> $cab?->volante],
   ['nom'=>'45','d'=>'','v'=>'✓','m'=>'','txt'=>'OPERACIÓN',                                                             'val'=> $cab?->operacion_direccion],
   ['nom'=>'45','d'=>'','v'=>'✓','m'=>'✓','txt'=>'DISTANCIA',                                                            'val'=> $cab?->juego_volante],
   ['nom'=>'45','d'=>'','v'=>'✓','m'=>'','txt'=>'TOPES DE DIRECCIÓN',                                                    'val'=> $cab?->topes_direccion],
-  ['nom'=>'51','d'=>'','v'=>'✓','m'=>'','txt'=>'DIRECCIÓN TELESCÓPICA AJUSTABLE',                                       'val'=> $cab?->direccion_telescopica],
+  // F-17 oficial: solo columna M (no V).
+  ['nom'=>'51','d'=>'','v'=>'','m'=>'✓','txt'=>'DIRECCIÓN TELESCÓPICA AJUSTABLE',                                       'val'=> $cab?->direccion_telescopica],
   ['nom'=>'46','d'=>'','v'=>'✓','m'=>'','txt'=>'COLUMNA DE DIRECCIÓN',                                                  'val'=> $cab?->columna_direccion],
   ['nom'=>'46','d'=>'','v'=>'✓','m'=>'','txt'=>'BARRA DE ACOPLAMIENTO',                                                 'val'=> $cab?->barra_acoplamiento],
   ['nom'=>'46','d'=>'','v'=>'✓','m'=>'','txt'=>'TERMINALES, BARRA DE ACOPLAMIENTO, DE ARRASTRE',                        'val'=> $cab?->terminales_direccion],
@@ -372,7 +415,7 @@ $secCombustible = [
   ['nom'=>'2','d'=>'','v'=>'✓','m'=>'','txt'=>'LÍNEAS, MANGUERAS, BOMBA',                   'val'=> $ch?->combustible_lineas_bomba ?? $ch?->sistema_combustible],
 ];
 
-// SISTEMA DE COMBUSTIBLE (GAS LP) — F-18.
+// SISTEMA DE COMBUSTIBLE (GAS LP Ó GAS NATURAL).
 $secGasLp = [
   ['nom'=>'3','d'=>'','v'=>'✓','m'=>'','txt'=>'SOPORTE TANQUE',                                       'val'=> $ch?->gaslp_soporte_tanque],
   ['nom'=>'3','d'=>'','v'=>'✓','m'=>'','txt'=>'ETIQUETA DEL CILINDRO',                                'val'=> $ch?->gaslp_etiqueta_cilindro],
@@ -394,7 +437,7 @@ $secSuspTrasera = [
   ['nom'=>'15','d'=>'','v'=>'✓','m'=>'','txt'=>'SUSPENSIÓN DE BARRA DE TORSIÓN: BUJES Y PASADORES DE GRILLETE, BARRA DE TORSIÓN, SOPORTES DE MONTAJE, ELEMENTOS DE SUJECIÓN', 'val'=> $su?->barra_torsion],
   ['nom'=>'21','d'=>'','v'=>'✓','m'=>'','txt'=>'AMORTIGUADORES: CONDICIÓN, MONTURA, BUJES, ELEMENTOS DE SUJECIÓN, POSICIONAMIENTO', 'val'=> $su?->amortiguadores],
   ['nom'=>'18','d'=>'','v'=>'✓','m'=>'','txt'=>'SUSPENSIÓN DE AIRE: BUJES, PIVOTES, LÍNEAS, BOLSAS DE AIRE, BASE DE BOLSAS, VARILLAS DE RADIO, VIGAS DE SUSPENSIÓN HORIZONTAL, ALTURA, VÁLVULA DE NIVELACIÓN, VÁLVULA DE PROTECCIÓN', 'val'=> $su?->suspension_aire],
-  ['nom'=>'18','d'=>'','v'=>'','m'=>'✓','txt'=>'VÁLVULA DE PROTECCIÓN DE PRESIÓN 65(PSI)', 'val'=> $su?->valvula_proteccion_65psi],
+  ['nom'=>'18','d'=>'','v'=>'✓','m'=>'','txt'=>'VÁLVULA DE PROTECCIÓN DE PRESIÓN 65(PSI)', 'val'=> $su?->valvula_proteccion_65psi],
   ['nom'=>'18','d'=>'','v'=>'✓','m'=>'','txt'=>'SUSPENSIÓN DE VIGA OSCILANTE: VIGA, INSERCIÓN DE HULE EN BUJES, MOVIMIENTO DEL EJE, MUELLES, CRUCETA, ALINEACIÓN', 'val'=> $su?->viga_oscilante],
   ['nom'=>'72','d'=>'','v'=>'✓','m'=>'','txt'=>'SALPICADERAS (LODERAS): CONDICIÓN, ANCHO, ALTURA DESDE EL SUELO', 'val'=> $su?->salpicaderas],
   ['nom'=>'21','d'=>'','v'=>'✓','m'=>'','txt'=>'AMORTIGUADORES: CONDICIÓN, MONTURA, BUJES, ELEMENTOS DE SUJECIÓN, POSICIONAMIENTO', 'val'=> $amortTrasera2],
@@ -465,19 +508,19 @@ $secLucesAutobus = [
   ['nom'=>'53','d'=>'','v'=>'✓','m'=>'','txt'=>'LUCES INTERMITENTES / DE PELIGRO',                                     'val'=> $il?->luces_intermitentes],
   ['nom'=>'53','d'=>'','v'=>'✓','m'=>'','txt'=>'LUZ DE NIEBLA OPERADAS CON LUZ BAJA',                                  'val'=> $il?->luz_niebla],
   ['nom'=>'65','d'=>'','v'=>'✓','m'=>'','txt'=>'PARABRISAS: GRIETAS, DESPOSTILLADO EN FORMA DE ESTRELLA DE 12.5 mm DE DIÁMETRO EN LA BARRIDA DEL LIMPIAPARABRISAS, DECOLORACIÓN MAYOR AL 10% DE TODA LA SUPERFICIE, POLARIZADO QUE NO ES DE FÁBRICA, OBSTRUCCIONES, CONDICIÓN', 'val'=> $il?->parabrisas],
-  ['nom'=>'','d'=>'','v'=>'','m'=>'','txt'=>'PARABRISAS TIPO AS-1 o AS 10',                                         'val'=> $il?->parabrisas_tipo],
+  ['nom'=>'','d'=>'','v'=>'','m'=>'','txt'=>'Tipo: ' . \App\Validation\InspeccionMexico::etiquetaParabrisasTipo($il?->parabrisas_tipo), 'val'=> \App\Validation\InspeccionMexico::marcaParabrisasTipo($il?->parabrisas_tipo)],
   ['nom'=>'72','d'=>'','v'=>'✓','m'=>'','txt'=>'LIMPIA PARABRISAS: FUNCIONAMIENTO, PLUMAS DE HULE, BRAZOS',            'val'=> $il?->limpiaparabrisas],
   ['nom'=>'72','d'=>'','v'=>'✓','m'=>'','txt'=>'INYECTORES DE AGUA (SI CUENTA DE FÁBRICA) FALTANTES, NO FUNCIONAN',    'val'=> $il?->inyectores_agua],
   ['nom'=>'53','d'=>'','v'=>'✓','m'=>'','txt'=>'LUZ QUE ILUMINAN DURANTE EL DÍA SI CUENTA DE COLOR BLANCO O AMARILLO', 'val'=> $il?->luz_diurna],
   ['nom'=>'62','d'=>'','v'=>'✓','m'=>'','txt'=>'DEFENSA DELANTERA, FLOJA, FALTANTE, ROTA',                             'val'=> $il?->defensa_delantera],
-  ['nom'=>'75','d'=>'','v'=>'✓','m'=>'','txt'=>'PLACA DE IDENTIFICACIÓN',                                              'val'=> $il?->placa_identificacion],
+  ['nom'=>'75','d'=>'','v'=>'✓','m'=>'','txt'=>'PLACA DE IDENTIFICACIÓN',                                              'val'=> \App\Validation\InspeccionMexico::valorPlacaIdentificacion($il)],
 ];
 
 // SISTEMA DE DIRECCIÓN — F-21 (dirección telescópica solo columna M).
 $secDireccionAutobus = [
-  ['nom'=>'45','d'=>'','v'=>'✓','m'=>'✓','txt'=>'VOLANTE',                                                              'val'=> $cab?->volante],
+  ['nom'=>'45','d'=>'','v'=>'✓','m'=>'✓','txt'=>'VOLANTE' . ($volanteCmTxt !== '' ? ': ' . $volanteCmTxt . ' cm' : ''), 'val'=> $cab?->volante],
   ['nom'=>'45','d'=>'','v'=>'✓','m'=>'','txt'=>'OPERACIÓN',                                                             'val'=> $cab?->operacion_direccion],
-  ['nom'=>'45','d'=>'','v'=>'✓','m'=>'✓','txt'=>'DISTANCIA',                                                            'val'=> $cab?->juego_volante],
+  ['nom'=>'45','d'=>'','v'=>'✓','m'=>'✓','txt'=>'HOLGURA / DISTANCIA' . ($holguraCmTxt !== '' ? ': ' . $holguraCmTxt . ' cm' : ''), 'val'=> $cab?->juego_volante],
   ['nom'=>'45','d'=>'','v'=>'✓','m'=>'','txt'=>'TOPES DE DIRECCIÓN',                                                    'val'=> $cab?->topes_direccion],
   ['nom'=>'51','d'=>'','v'=>'','m'=>'✓','txt'=>'DIRECCIÓN TELESCÓPICA AJUSTABLE',                                       'val'=> $cab?->direccion_telescopica],
   ['nom'=>'46','d'=>'','v'=>'✓','m'=>'','txt'=>'COLUMNA DE DIRECCIÓN',                                                  'val'=> $cab?->columna_direccion],
@@ -499,7 +542,6 @@ $secNeuAutobus = [
   ['nom'=>'38','d'=>'','v'=>'✓','m'=>'', 'txt'=>'CAÍDA DE PRESIÓN DE AIRE: BAJA MÁS DE 2 PSI',          'val'=> $sa?->caida_presion_cumple],
   ['nom'=>'39','d'=>'','v'=>'✓','m'=>'', 'txt'=>'VÁLVULAS DEL SISTEMA DE AIRE: OPERACIÓN, ANTIRRETORNO, VÁLVULAS BIDIRECCIONALES, CONTAMINACIÓN, TANQUES DE AIRE, VÁLVULAS DE PURGA, EYECTORES DE HUMEDAD', 'val'=> $sa?->valvulas_sistema],
   ['nom'=>'39','d'=>'','v'=>'✓','m'=>'', 'txt'=>'VÁLVULA DE PEDAL: OPERACIÓN, CONDICIÓN, SOPORTE/MONTAJE', 'val'=> $sa?->valvula_pedal],
-  ['nom'=>'39','d'=>'','v'=>'✓','m'=>'', 'txt'=>'VÁLVULA MANUAL DE CONTROL DE FRENO DE REMOLQUE: OPERACIÓN, CONDICIÓN, SOPORTE', 'val'=> $sa?->valvula_control_remolque],
   ['nom'=>'39','d'=>'','v'=>'✓','m'=>'', 'txt'=>'VÁLVULA DE LIBERACIÓN RÁPIDA: OPERACIÓN, SOPORTE',      'val'=> $sa?->valvula_liberacion_rapida],
   ['nom'=>'39','d'=>'','v'=>'✓','m'=>'', 'txt'=>'VÁLVULA DE RELEVO/LIMITANTES/PROPORCIONADORAS: OPERACIÓN, SOPORTE/MONTAJE', 'val'=> $sa?->valvulas_relevo_linea_azul],
   ['nom'=>'39','d'=>'','v'=>'✓','m'=>'', 'txt'=>'SISTEMA DE PROTECCIÓN DEL CAMIÓN (SIN REMOLQUE ENGANCHADO): VÁLVULA DE PROTECCIÓN DEL CAMIÓN, VÁLVULA DE SUMINISTRO DEL REMOLQUE, (20 Y 45 PSI) (60 PSI)', 'val'=> $sa?->proteccion_camion],
@@ -561,30 +603,46 @@ $secNeuDolly = [
   ['nom'=>'42','d'=>'','v'=>'✓','m'=>'', 'txt'=>'FRENOS NEUMÁTICOS DE TAMBOR: OPERACIÓN, CONDICIÓN, DESGASTE, 8 mm TRASERA, DELANTERA 4.8 mm, 1,6 SOBRE EL REMACHE, SELLOS, RESORTES, RODILLOS DE ZAPATA, ARAÑAS, PASADORES', 'val'=> $fr?->frenos_tambor],
 ];
 
-// FRENOS (estacionamiento + hidráulicos) — F-18.
-$secFrenosHid = [
+// FRENOS F-18 — subsecciones del formato oficial (F-18_CAMION.txt).
+$secFrenoEstacionamiento = [
   ['nom'=>'22','d'=>'','v'=>'✓','m'=>'','txt'=>'FRENO DE ESTACIONAMIENTO: FUNCIÓN, APLICACIÓN, MECANISMO DE APLICACIÓN', 'val'=> $fr?->freno_estacionamiento],
   ['nom'=>'22','d'=>'','v'=>'✓','m'=>'','txt'=>'LUZ INDICADORA',                                        'val'=> $fr?->hid_luz_indicadora],
   ['nom'=>'22','d'=>'','v'=>'✓','m'=>'','txt'=>'CABLES Y ACOPLAMIENTO',                                 'val'=> $fr?->hid_cables_acoplamiento],
   ['nom'=>'22','d'=>'','v'=>'✓','m'=>'','txt'=>'BALATA SI ES VISIBLE DESGASTE 3,2 mm REMACHADA, 1,6 mm ADHERIDA', 'val'=> $fr?->estac_balata],
   ['nom'=>'22','d'=>'','v'=>'✓','m'=>'','txt'=>'FRENOS DE ESTACIONAMIENTO LIBERA HIDRÁULICAMENTE',      'val'=> $fr?->hid_libera_hidraulico],
+];
+$secFrenosHidAsistidos = [
   ['nom'=>'26','d'=>'','v'=>'✓','m'=>'','txt'=>'RECORRIDO',                                             'val'=> $fr?->hid_recorrido],
   ['nom'=>'26','d'=>'','v'=>'✓','m'=>'','txt'=>'INDICADOR DE ADVERTENCIA',                              'val'=> $fr?->hid_indicador_advertencia],
   ['nom'=>'26','d'=>'','v'=>'✓','m'=>'','txt'=>'TANQUE (DEPÓSITO DE LÍQUIDO) LÍNEAS Y MANGUERAS, BANDA', 'val'=> $fr?->hid_deposito_liquido],
   ['nom'=>'26','d'=>'','v'=>'✓','m'=>'','txt'=>'PEDAL DE FRENO, OPERACIÓN',                             'val'=> $fr?->hid_pedal],
+];
+$secSistemaVacio = [
   ['nom'=>'27','d'=>'','v'=>'✓','m'=>'','txt'=>'LÍNEA Y CONDICIÓN DE MANGUERA',                         'val'=> $fr?->hid_lineas_mangueras],
-  ['nom'=>'27','d'=>'','v'=>'✓','m'=>'','txt'=>'VÁLVULAS UNIDIRECCIONALES',                             'val'=> $fr?->hid_valvulas_unidirec],
+  ['nom'=>'27','d'=>'','v'=>'','m'=>'','txt'=>'VÁLVULAS UNIDIRECCIONALES',                             'val'=> $fr?->hid_valvulas_unidirec],
   ['nom'=>'27','d'=>'','v'=>'✓','m'=>'','txt'=>'ABRAZADERAS',                                           'val'=> $fr?->hid_abrazaderas],
   ['nom'=>'28','d'=>'','v'=>'✓','m'=>'','txt'=>'TANQUE (BOOSTER), OPERACIÓN, CONDICIÓN',                'val'=> $fr?->hid_booster],
   ['nom'=>'29','d'=>'','v'=>'✓','m'=>'','txt'=>'RESERVA DE VACÍO, RESERVA, ALARMA O LUZ INDICADORA',    'val'=> $fr?->hid_reserva_vacio],
   ['nom'=>'30','d'=>'','v'=>'✓','m'=>'','txt'=>'BOMBA DE VACÍO, DESEMPEÑO',                             'val'=> $fr?->hid_bomba_vacio],
+];
+$secFrenosHidTambor = [
   ['nom'=>'31','d'=>'','v'=>'✓','m'=>'','txt'=>'CONDICIÓN, CONTAMINADO',                                'val'=> $fr?->hid_liquido_condicion],
   ['nom'=>'31','d'=>'','v'=>'✓','m'=>'','txt'=>'CILINDROS, OPERACIÓN CONDICIÓN, SELLOS',                'val'=> $fr?->hid_cilindros],
   ['nom'=>'31','d'=>'','v'=>'✓','m'=>'','txt'=>'TAMBORES, CONDICIÓN (GRIETAS)',                         'val'=> $fr?->hid_tambores],
+];
+$secFrenosHidDisco = [
   ['nom'=>'32','d'=>'','v'=>'✓','m'=>'','txt'=>'DISCO, ROTO PICADO',                                    'val'=> $fr?->hid_disco],
   ['nom'=>'32','d'=>'','v'=>'✓','m'=>'','txt'=>'CALIPERS, AGRIETADO',                                   'val'=> $fr?->hid_calipers],
   ['nom'=>'32','d'=>'','v'=>'✓','m'=>'','txt'=>'PASTAS DE FRENO, ROTAS DAÑADAS, CONTAMINADAS',          'val'=> $fr?->hid_pastas_freno],
 ];
+// Compat: bloque único por si algún camino legacy lo usa.
+$secFrenosHid = array_merge(
+    $secFrenoEstacionamiento,
+    $secFrenosHidAsistidos,
+    $secSistemaVacio,
+    $secFrenosHidTambor,
+    $secFrenosHidDisco
+);
 
 // CABINA — cabina.
 $secCabina = [
@@ -681,6 +739,7 @@ if ($tipoFormulario === 'F19_REMOLQUE') {
     $add($secciones, 'SUSPENSIÓN DELANTERA', $secSuspDelantera);
     $add($secciones, 'SISTEMA DE DIRECCIÓN', $secDireccionAutobus);
     $add($secciones, 'SISTEMA DE COMBUSTIBLE (DIESEL, GASOLINA)', $secCombustible);
+    $add($secciones, 'SISTEMA DE COMBUSTIBLE (GAS LP Ó GAS NATURAL)', $secGasLp);
     $add($secciones, 'SISTEMA DE ESCAPE', $secEscape);
     $add($secciones, 'LLANTAS TRASERAS', $llTraseras);
     $add($secciones, 'SUSPENSIÓN TRASERA', $suspTraseraPdf);
@@ -692,63 +751,110 @@ if ($tipoFormulario === 'F19_REMOLQUE') {
     ]);
     $add($secciones, 'FRENOS NEUMÁTICOS', $secNeuAutobus);
     $add($secciones, 'CABINA', $secCabinaAutobus);
-} else {
-    // Cabina: F-17 Tracto, F-18 Camión, F-21 Autobús.
+} elseif ($esCamion) {
+    // Orden oficial F-18 REV.01 (F-18_CAMION.txt / F-18.pdf).
     $add($secciones, 'LUCES', $secLuces);
     $add($secciones, 'PARTE TRASERA', $secTraseraCabina);
-    $add($secciones, 'VIGAS Y MONTAJE DEL CHASIS', $secVigas);
     $add($secciones, 'LLANTAS DELANTERAS', $llDelanteras);
     $add($secciones, 'SUSPENSIÓN DELANTERA', $secSuspDelantera);
     $add($secciones, 'SISTEMA DE DIRECCIÓN', $secDireccion);
-    $add($secciones, 'SISTEMA DE COMBUSTIBLE', $secCombustible);
-    if ($esCamion) {
-        $add($secciones, 'SISTEMA DE COMBUSTIBLE (GAS LP)', $secGasLp);
-    }
+    $add($secciones, 'VIGAS Y MONTAJE DEL CHASIS', $secVigas);
+    $add($secciones, 'SISTEMA DE COMBUSTIBLE (DIESEL, GASOLINA)', $secCombustible);
+    $add($secciones, 'SISTEMA DE COMBUSTIBLE (GAS LP Ó GAS NATURAL)', $secGasLp);
     $add($secciones, 'SISTEMA DE ESCAPE', $secEscape);
-    if ($tipoFormulario === 'F17_TRACTO') {
-        $add($secciones, 'CONEXIONES DE AIRE Y ELÉCTRICAS (MANITAS)', [
-            ['nom'=>'60','d'=>'','v'=>'✓','m'=>'','txt'=>'CONEXIONES DE AIRE (MANITAS)',     'val'=> $sa?->conexiones_aire_remolque],
-            ['nom'=>'54','d'=>'','v'=>'✓','m'=>'','txt'=>'CONEXIONES ELÉCTRICAS (MANITAS)',  'val'=> $sa?->conexiones_elec_remolque],
-        ]);
-    }
     $add($secciones, 'LLANTAS TRASERAS', $llTraseras);
     $add($secciones, 'SUSPENSIÓN TRASERA', $suspTraseraPdf);
     $add($secciones, 'BATERÍA', [
         ['nom'=>'54','d'=>'','v'=>'✓','m'=>'','txt'=>'ACUMULADOR DE BATERÍA, SOPORTE, POSTES, CUBIERTA', 'val'=> $ch?->bateria],
     ]);
     $add($secciones, 'FRENOS NEUMÁTICOS', $neuFullPdf);
-    if ($esCamion) {
-        $add($secciones, 'FRENOS HIDRÁULICOS', $secFrenosHid);
-    }
-    if ($tipoFormulario === 'F17_TRACTO') {
-        $add($secciones, 'FRENOS ELÉCTRICOS', [
-            ['nom'=>'63','d'=>'','v'=>'✓','m'=>'','txt'=>'FRENOS ELÉCTRICOS (RETARDADORES)', 'val'=> $fr?->frenos_electricos_ret],
-        ]);
-        $add($secciones, 'SISTEMA DE ACOPLAMIENTO', $secAcoplamiento);
-        $psiCon = $sa?->presion_cierre_con_disp;
-        $psiSin = $sa?->presion_cierre_sin_disp;
-        $fmtPsi = static function ($v): string {
-            if ($v === null || $v === '') {
-                return '—';
-            }
-
-            return rtrim(rtrim((string)$v, '0'), '.') . ' PSI';
-        };
-        $add($secciones, 'MEDICIONES XXXIX (PSI)', [
-            ['nom'=>'39','d'=>'','v'=>'','m'=>'✓','txt'=>'PRESIÓN DE CIERRE CON DISPOSITIVO: ' . $fmtPsi($psiCon), 'val'=> null],
-            ['nom'=>'39','d'=>'','v'=>'','m'=>'✓','txt'=>'PRESIÓN DE CIERRE SIN DISPOSITIVO: ' . $fmtPsi($psiSin), 'val'=> null],
-        ]);
-    }
+    $add($secciones, 'FRENOS HIDRÁULICOS', $secFrenoEstacionamiento);
+    $add($secciones, 'FRENOS HIDRÁULICOS ASISTIDOS', $secFrenosHidAsistidos);
+    $add($secciones, 'SISTEMA DE VACÍO', $secSistemaVacio);
+    $add($secciones, 'FRENOS HIDRÁULICOS DE TAMBOR', $secFrenosHidTambor);
+    $add($secciones, 'FRENOS HIDRÁULICOS DE DISCO', $secFrenosHidDisco);
+    $add($secciones, 'CABINA', $secCabinaPdf);
+} else {
+    // F-17 Tracto (y fallback).
+    $add($secciones, 'LUCES', $secLuces);
+    $add($secciones, 'PARTE TRASERA', $secTraseraCabina);
+    $add($secciones, 'VIGAS Y MONTAJE DEL CHASIS', $secVigas);
+    $add($secciones, 'LLANTAS DELANTERAS', $llDelanteras);
+    $add($secciones, 'SUSPENSIÓN DELANTERA', $secSuspDelantera);
+    $add($secciones, 'SISTEMA DE DIRECCIÓN', $secDireccion);
+    $add($secciones, 'SISTEMA DE COMBUSTIBLE (DIESEL, GASOLINA)', $secCombustible);
+    $add($secciones, 'SISTEMA DE COMBUSTIBLE (GAS LP Ó GAS NATURAL)', $secGasLp);
+    $add($secciones, 'SISTEMA DE ESCAPE', $secEscape);
+    $add($secciones, 'CONEXIONES DE AIRE Y ELÉCTRICAS (MANITAS)', [
+        ['nom'=>'60','d'=>'','v'=>'✓','m'=>'','txt'=>'CONEXIONES DE AIRE (MANITAS)',     'val'=> $sa?->conexiones_aire_remolque],
+        ['nom'=>'54','d'=>'','v'=>'✓','m'=>'','txt'=>'CONEXIONES ELÉCTRICAS (MANITAS)',  'val'=> $sa?->conexiones_elec_remolque],
+    ]);
+    $add($secciones, 'LLANTAS TRASERAS', $llTraseras);
+    $add($secciones, 'SUSPENSIÓN TRASERA', $suspTraseraPdf);
+    $add($secciones, 'BATERÍA', [
+        ['nom'=>'54','d'=>'','v'=>'✓','m'=>'','txt'=>'ACUMULADOR DE BATERÍA, SOPORTE, POSTES, CUBIERTA', 'val'=> $ch?->bateria],
+    ]);
+    $add($secciones, 'FRENOS NEUMÁTICOS', $neuFullPdf);
+    $add($secciones, 'FRENOS ELÉCTRICOS', [
+        ['nom'=>'63','d'=>'','v'=>'✓','m'=>'','txt'=>'FRENOS ELÉCTRICOS (RETARDADORES)', 'val'=> $fr?->frenos_electricos_ret],
+    ]);
+    $add($secciones, 'SISTEMA DE ACOPLAMIENTO', $secAcoplamiento);
     $add($secciones, 'CABINA', $secCabinaPdf);
 }
 
-/* ── Pie de medición: SIEMPRE filas completas del formato (P2.2); captura puede tener menos ── */
-$numerosPie = \App\Validation\Nom068Formato::numerosPiePdf((string)$tipoFormulario);
+/* Tabla D: mediciones complementarias (antes de observaciones). */
+$medicionesComplementarias = [];
+$fmtNumPdf = static function ($v, string $unidad): string {
+    if ($v === null || $v === '') {
+        return '—';
+    }
+    if (!is_numeric($v)) {
+        return (string)$v . ($unidad !== '' ? ' ' . $unidad : '');
+    }
+    $n = (float)$v;
+    $txt = fmod($n, 1.0) === 0.0 ? (string)(int)$n : rtrim(rtrim(sprintf('%.2F', $n), '0'), '.');
+
+    return $txt . ($unidad !== '' ? ' ' . $unidad : '');
+};
+if ($tipoFormulario === 'F17_TRACTO') {
+    $medicionesComplementarias = [
+        ['nom'=>'XXXIX','d'=>'','v'=>'','m'=>'✓','txt'=>'PRESIÓN EN PSI CUANDO LA VÁLVULA DE SUMINISTRO DEL REMOLQUE SE CERRÓ AUTOMÁTICAMENTE CON DISPOSITIVO DE CIERRE: ' . $fmtNumPdf($sa?->presion_cierre_con_disp, 'PSI'), 'val'=> null],
+        ['nom'=>'XXXIX','d'=>'','v'=>'','m'=>'✓','txt'=>'PRESIÓN EN PSI CUANDO LA VÁLVULA DE SUMINISTRO DEL REMOLQUE SE CERRÓ AUTOMÁTICAMENTE SIN DISPOSITIVO DE CIERRE: ' . $fmtNumPdf($sa?->presion_cierre_sin_disp, 'PSI'), 'val'=> null],
+        ['nom'=>'XXXV','d'=>'','v'=>'','m'=>'✓','txt'=>'TIEMPO EN MINUTOS PARA AUMENTAR LA PRESIÓN DE AIRE DE 350 A 620 KPa (50-90 PSI) EN EL MEDIDOR: ' . $fmtNumPdf($sa?->tiempo_carga_min, 'min'), 'val'=> null],
+        ['nom'=>'XXXVIII','d'=>'','v'=>'','m'=>'✓','txt'=>'CON EL SISTEMA DE AIRE COMPLETAMENTE CARGADO Y EL MOTOR DETENIDO, CAÍDA DE PRESIÓN EN PSI EN UN MINUTO: ' . $fmtNumPdf($sa?->caida_presion_psi, 'PSI'), 'val'=> null],
+    ];
+} elseif ($tipoFormulario === 'F18_CAMION') {
+    // Oficial F-18: solo XXXV y XXXVIII (sin XXXIX de remolque).
+    $medicionesComplementarias = [
+        ['nom'=>'XXXV','d'=>'','v'=>'','m'=>'✓','txt'=>'TIEMPO EN MINUTOS QUE SE NECESITA PARA AUMENTAR LA PRESIÓN DE AIRE DE 350 A 620 KPa (50-90 PSI) EN EL MEDIDOR: ' . $fmtNumPdf($sa?->tiempo_carga_min, 'min'), 'val'=> null],
+        ['nom'=>'XXXVIII','d'=>'','v'=>'','m'=>'✓','txt'=>'CON EL SISTEMA DE AIRE COMPLETAMENTE CARGADO Y EL MOTOR DETENIDO SE REGISTRA LA CAÍDA DE PRESIÓN EN PSI EN UN MINUTO: ' . $fmtNumPdf($sa?->caida_presion_psi, 'PSI'), 'val'=> null],
+    ];
+}
+
+/* ── Pie de medición: solo llantas activas del tipo (p. ej. T2→6, T3→10) ──
+ * Fila N del pie = N-ésimo slot de captura (mismo orden que el formulario). */
+$numerosPie = \App\Validation\Nom068Formato::numerosPiePdf(
+    (string)$tipoFormulario,
+    $tipoVehCod !== '' ? $tipoVehCod : null
+);
+$resolverLlPie = static function (array $by, int $num, ?string $posPreferida = null) {
+    $posPreferida = strtoupper(trim((string)$posPreferida));
+    if ($posPreferida !== '' && isset($by[$num][$posPreferida])) {
+        return $by[$num][$posPreferida];
+    }
+
+    return $by[$num]['EXTERNA'] ?? $by[$num]['INTERNA'] ?? (isset($by[$num]) ? reset($by[$num]) : null);
+};
 $llantaMap = [];
-foreach ($numerosPie as $n) {
-    $ext = $llBy[$n]['EXTERNA'] ?? null;
-    $int = $llBy[$n]['INTERNA'] ?? null;
-    $llantaMap[$n] = $ext ?? $int;
+foreach ($numerosPie as $pieNum) {
+    $slotIdx = $pieNum - 1;
+    if (isset($slotsLlantas[$slotIdx]) && is_array($slotsLlantas[$slotIdx])) {
+        [$sn, $sp] = $slotsLlantas[$slotIdx];
+        $llantaMap[$pieNum] = $resolverLlPie($llBy, (int)$sn, (string)$sp)
+            ?? $resolverLlPie($llBy, (int)$pieNum);
+    } else {
+        $llantaMap[$pieNum] = $resolverLlPie($llBy, (int)$pieNum);
+    }
 }
 $rinesByLlanta = [];
 if (!empty($inspeccion->inspeccion_rines)) {
@@ -769,19 +875,15 @@ if (!empty($inspeccion->inspeccion_rines)) {
     }
 }
 
-/* Varillas por par (mm + resultado CUMPLE/NO CUMPLE en BD; texto en PDF: Aprobado/Rechazado) */
-$varillas = [
-    '1-2' => $inspeccion->varilla_ll1_2_mm ?? '',
-    '3-4' => $inspeccion->varilla_ll3_4_mm ?? '',
-    '5-6' => $inspeccion->varilla_ll5_6_mm ?? '',
-    '7-8' => $inspeccion->varilla_ll7_8_mm ?? '',
-];
-$varillasRes = [
-    '1-2' => $inspeccion->varilla_ll1_2_resultado ?? '',
-    '3-4' => $inspeccion->varilla_ll3_4_resultado ?? '',
-    '5-6' => $inspeccion->varilla_ll5_6_resultado ?? '',
-    '7-8' => $inspeccion->varilla_ll7_8_resultado ?? '',
-];
+/* Varillas por par (mm + resultado). Incluye 9-10 / 11-12 cuando existen en BD. */
+$varillas = [];
+$varillasRes = [];
+foreach (\App\Validation\Nom068Formato::paresVarillaTodos() as $lab => $suf) {
+    $mmKey = 'varilla_' . $suf . '_mm';
+    $resKey = 'varilla_' . $suf . '_resultado';
+    $varillas[$lab] = $inspeccion->get($mmKey) ?? '';
+    $varillasRes[$lab] = $inspeccion->get($resKey) ?? '';
+}
 
 $pdfEtiquetaCumple = static function (string $val): string {
     return match (strtoupper(trim($val))) {
@@ -791,15 +893,15 @@ $pdfEtiquetaCumple = static function (string $val): string {
     };
 };
 
-$getVarillaDisplay = static function (int $n, array $mmMap, array $resMap) use ($pdfEtiquetaCumple): string {
-    $par = match (true) {
-        $n <= 2 => '1-2',
-        $n <= 4 => '3-4',
-        $n <= 6 => '5-6',
-        default => '7-8',
-    };
+$getVarillaDisplay = static function (int $n, array $mmMap, array $resMap) use ($pdfEtiquetaCumple, $tipoVehCod): string {
+    $par = \App\Validation\Nom068Formato::parVarillaParaLlanta($n, $tipoVehCod !== '' ? $tipoVehCod : null);
     $mm = trim((string)($mmMap[$par] ?? ''));
     $rs = trim((string)($resMap[$par] ?? ''));
+    // Legacy: datos guardados en par 1-2 antes de separar llantas 1 y 2.
+    if ($mm === '' && $rs === '' && ($n === 1 || $n === 2)) {
+        $mm = trim((string)($mmMap['1-2'] ?? ''));
+        $rs = trim((string)($resMap['1-2'] ?? ''));
+    }
     if ($mm === '' && $rs === '') {
         return '';
     }
@@ -813,23 +915,16 @@ $getVarillaDisplay = static function (int $n, array $mmMap, array $resMap) use (
     return $pdfEtiquetaCumple($rs);
 };
 
-/** Texto cámara de freno (inspecciones.*): solo en fila llanta 1 del pie para no repetir */
+/** Cámara pie: Del (1–2) / Tras (3+) con misma agrupación que varilla. */
 $camaraFrenoPieTxt = static function ($ins, int $numLlanta): string {
-    if ($numLlanta !== 1) {
-        return '';
-    }
-    $tipo = trim((string)($ins->tipo_camara_frenado ?? ''));
-    $mm = $ins->camara_abrazadera_mm ?? null;
-    $parts = [];
-    if ($tipo !== '') {
-        $parts[] = $tipo === 'CAMARA DE FRENO TIPO ABRAZADERA' ? 'Abrazadera' : ($tipo === 'CAMARA DE FRENO TIPO PERNO' ? 'Perno' : $tipo);
-    }
-    if ($mm !== null && $mm !== '') {
-        $parts[] = (string)$mm . ' mm';
-    }
-
-    return implode(' · ', $parts);
+    return \App\Validation\Nom068Formato::camaraPieTxt(
+        $numLlanta,
+        $ins->camara_abrazadera_mm ?? null,
+        $ins->camara_abrazadera_trasera_mm ?? null
+    );
 };
+$maxPieN = $numerosPie !== [] ? (int)max($numerosPie) : 0;
+$tipoPieVar = $tipoVehCod !== '' ? $tipoVehCod : null;
 
 $pdfSymLl = static function (?string $vx) use ($mk): string {
     $m = $mk($vx);
@@ -842,11 +937,10 @@ $pdfSymLl = static function (?string $vx) use ($mk): string {
 <head>
 <meta charset="utf-8"/>
 <style>
-  /* Márgenes de página: espacio para que el marco y las tablas no queden cortados al imprimir */
-  @page { margin: 14mm 16mm 18mm 16mm; size: letter portrait; }
+  /* Dompdf: no usar html/body { margin:0 } o anula @page margin */
+  @page { margin: 12mm 14mm 14mm 14mm; size: letter portrait; }
 
   * { box-sizing: border-box; }
-  html, body { margin: 0; padding: 0; }
   body {
     font-family: DejaVu Sans, Arial, Helvetica, sans-serif;
     font-size: 7pt;
@@ -855,19 +949,15 @@ $pdfSymLl = static function (?string $vx) use ($mk): string {
     background: #fff;
   }
 
-  /* Marco + padding interior del documento (lista completa visible) */
+  /* Contenedor del documento (sin marco exterior) */
   .lista-doc {
-    border: 1.35pt solid #4d8a5c;
-    padding: 4.5mm 5.5mm 5.5mm 5.5mm;
+    padding: 0;
     background: #fff;
   }
 
-  /* ── Franja superior ── */
-  .strip { height: 5px; background: #1a6b2a; margin-bottom: 3px; }
-
   /* ── Cabecera ── */
-  .hdr-tbl { width:100%; border-collapse:collapse; border-bottom:2px solid #1a6b2a; margin-bottom:6px; }
-  .hdr-tbl td { vertical-align:middle; padding:5px 8px; }
+  .hdr-tbl { width:100%; border-collapse:collapse; border:none; margin-bottom:6px; }
+  .hdr-tbl td { vertical-align:middle; padding:5px 8px; border:none; }
   .hdr-logo { width:72px; }
   .hdr-logo img { max-height:40px; max-width:70px; display:block; }
   .hdr-logo-txt { font-weight:bold; font-size:8pt; color:#1a6b2a; line-height:1.1; }
@@ -878,12 +968,12 @@ $pdfSymLl = static function (?string $vx) use ($mk): string {
   }
   .hdr-equipo {
     width:82px; text-align:center; padding:4px 6px;
-    border:1px solid #bcd4c0;
+    border: none;
     vertical-align:middle;
   }
   .hdr-equipo .eq-label { font-size:5.2pt; color:#555; text-transform:uppercase; letter-spacing:.03em; display:block; line-height:1.3; }
   .hdr-equipo .eq-num   { font-size:8.5pt; font-weight:800; color:#111; display:block; margin-top:2px; }
-  .hdr-equipo .eq-folio { font-size:6pt; color:#444; display:block; margin-top:4px; border-top:1px solid #bcd4c0; padding-top:3px; }
+  .hdr-equipo .eq-folio { font-size:6pt; color:#444; display:block; margin-top:4px; padding-top:3px; }
   .hdr-folio {
     width:82px; text-align:right; font-size:6pt; color:#444;
     border-left:1px solid #ccc; padding-left:8px;
@@ -910,13 +1000,13 @@ $pdfSymLl = static function (?string $vx) use ($mk): string {
     background:#1a6b2a; color:#fff; font-size:6.4pt; font-weight:bold;
     text-align:center; text-transform:uppercase; padding:5px 4px; letter-spacing:0.04em;
   }
-  .chk thead .th-top .th-concepto { text-align:left; }
+  .chk thead .th-top .th-concepto { text-align:center; }
 
-  /* Fila de sección */
+  /* Fila de sección (títulos centrados) */
   .sec-row td {
     background:#2d9e47; color:#fff; font-weight:bold;
     font-size:7pt; text-transform:uppercase; padding:4px 7px;
-    letter-spacing:0.04em;
+    letter-spacing:0.04em; text-align:center;
   }
 
   /* Filas de datos */
@@ -930,6 +1020,11 @@ $pdfSymLl = static function (?string $vx) use ($mk): string {
   .c-na   { width:28px; text-align:center; font-size:8.5pt; font-weight:bold; color:#666; }
   .c-cumple    { color:#0a5c1a; }
   .c-nocumple  { color:#b30000; }
+
+  /* ── Recuadro VOLANTE / HOLGURA (cm) — F-17 / F-18 / F-21 ── */
+  .vh-box { width:100%; border-collapse:collapse; border:1.15pt solid #6a9e78; margin-bottom:5px; }
+  .vh-box th { background:#1a6b2a; color:#fff; font-size:6.4pt; font-weight:bold; text-align:center; padding:4px 6px; border:1pt solid #80b080; text-transform:uppercase; }
+  .vh-box td { border:1pt solid #9bc4a4; padding:5px 8px; font-size:7pt; text-align:center; }
 
   /* ── Tablas del pie (llantas) ── */
   .pie-wrap { width:100%; border-collapse:collapse; margin-bottom:5px; }
@@ -945,7 +1040,7 @@ $pdfSymLl = static function (?string $vx) use ($mk): string {
 
   /* ── Observaciones ── */
   .obs-tbl { width:100%; border-collapse:collapse; border:1.15pt solid #6a9e78; margin-bottom:5px; }
-  .obs-tbl th { background:#1a6b2a; color:#fff; font-size:6.4pt; font-weight:bold; text-transform:uppercase; padding:4px 7px; border:1pt solid #80b080; }
+  .obs-tbl th { background:#1a6b2a; color:#fff; font-size:6.4pt; font-weight:bold; text-transform:uppercase; text-align:center; padding:4px 7px; border:1pt solid #80b080; }
   .obs-tbl td { border:1pt solid #9bc4a4; padding:5px 7px; font-size:6.6pt; min-height:14px; }
   .obs-tbl .td-nom { width:50px; text-align:center; background:#f4fcf5; font-weight:bold; }
 
@@ -975,13 +1070,11 @@ $pdfSymLl = static function (?string $vx) use ($mk): string {
   .pie-doc {
     font-size:5.8pt; color:#666; text-align:center;
     margin-top:6px; padding-top:4px; padding-bottom:1px;
-    border-top:1.25pt solid #2d9e47;
+    border-top: none;
   }
 </style>
 </head>
 <body>
-
-<div class="strip"></div>
 
 <div class="lista-doc">
 
@@ -996,7 +1089,7 @@ $pdfSymLl = static function (?string $vx) use ($mk): string {
       <?php endif; ?>
     </td>
     <td class="hdr-title">
-      <div class="tit-main">LISTA DE INSPECCIÓN FÍSICA DEL <?= $tipoVeh ?></div>
+      <div class="tit-main"><?= h(\App\Validation\Nom068Formato::tituloListaPdf((string)$tipoFormulario, $tipoVehCod !== '' ? $tipoVehCod : null)) ?></div>
     </td>
     <td class="hdr-equipo">
       <span class="eq-label">Equipo con que<br/>se inspecciona</span>
@@ -1004,26 +1097,39 @@ $pdfSymLl = static function (?string $vx) use ($mk): string {
     </td>
     <td class="hdr-folio">
       <span class="rev"><?= h($formularioRev) ?></span>
-      Folio: <strong><?= $folio ?></strong>
     </td>
   </tr>
 </table>
 
+<?php
+$odometroTxt = '';
+if ($esCabina && ($inspeccion->odometro ?? null) !== null && ($inspeccion->odometro ?? '') !== '') {
+    $odometroTxt = is_numeric($inspeccion->odometro)
+        ? number_format((float)$inspeccion->odometro, 0, '.', ',')
+        : (string)$inspeccion->odometro;
+}
+?>
 <!-- Metadatos -->
 <table class="meta-row" cellspacing="0">
   <tr>
+    <td class="ml">Folio</td><td class="val"><?= $folio ?></td>
     <td class="ml">Fecha</td><td class="val"><?= h($fechaTxt) ?></td>
     <td class="ml">Inspector</td><td class="val"><?= $inspector ?></td>
-    <td class="ml">Placas</td><td class="val"><?= $placasTxt ?></td>
   </tr>
   <tr>
+    <td class="ml">Placas</td><td class="val"><?= $placasTxt ?></td>
     <td class="ml">Marca / Modelo</td><td class="val"><?= h($modeloTxt) ?></td>
     <td class="ml">N° Serie / NIV</td><td class="val"><?= $serieTxt ?></td>
-    <td class="ml">Unidad Insp.</td><td class="val"><?= $uvNombre ?></td>
   </tr>
   <tr>
-    <td class="ml">Fecha verificación anterior</td>
-    <td class="val" colspan="5"><?= h($fechaAntTxt) ?></td>
+    <td class="ml">Unidad Insp.</td><td class="val"><?= $uvNombre ?><?php if ($uvAprobacion !== ''): ?> &nbsp;·&nbsp; No. aprob.: <?= $uvAprobacion ?><?php endif; ?></td>
+    <td class="ml">Fecha verificación anterior</td><td class="val"><?= h($fechaAntTxt) ?></td>
+    <?php if ($esCabina): ?>
+    <td class="ml">Kilometraje</td>
+    <td class="val"><?= $odometroTxt !== '' ? h($odometroTxt) : '—' ?></td>
+    <?php else: ?>
+    <td class="val" colspan="2"></td>
+    <?php endif; ?>
   </tr>
 </table>
 
@@ -1085,6 +1191,27 @@ $pdfSymLl = static function (?string $vx) use ($mk): string {
   </tbody>
 </table>
 
+<?php
+$mostrarVolanteHolgura = in_array((string)$tipoFormulario, ['F17_TRACTO', 'F18_CAMION', 'F21_AUTOBUS'], true);
+?>
+<?php if ($mostrarVolanteHolgura): ?>
+<!-- Tabla complementaria A: VOLANTE / HOLGURA -->
+<table class="vh-box" cellspacing="0">
+  <thead>
+    <tr>
+      <th style="width:50%;">VOLANTE (cm)</th>
+      <th style="width:50%;">HOLGURA (cm)</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><?= $volanteCmTxt !== '' ? h($volanteCmTxt) : '—' ?></td>
+      <td><?= $holguraCmTxt !== '' ? h($holguraCmTxt) : '—' ?></td>
+    </tr>
+  </tbody>
+</table>
+<?php endif; ?>
+
 <!-- Tablas de medición de llantas -->
 <table class="pie-wrap" cellspacing="0">
   <tr>
@@ -1103,15 +1230,21 @@ $pdfSymLl = static function (?string $vx) use ($mk): string {
         <tbody>
           <?php foreach ($numerosPie as $n):
             $ll = $llantaMap[$n] ?? null;
-            $varillaTxt = $getVarillaDisplay($n, $varillas, $varillasRes);
-            $camTxt = $camaraFrenoPieTxt($inspeccion, $n);
+            $inicioGrupo = \App\Validation\Nom068Formato::esInicioGrupoPieCamaraVarilla((int)$n, $tipoPieVar);
+            $spanGrupo = $inicioGrupo
+                ? \App\Validation\Nom068Formato::rowspanGrupoPieCamaraVarilla((int)$n, $maxPieN, $tipoPieVar)
+                : 1;
+            $varillaTxt = $inicioGrupo ? $getVarillaDisplay((int)$n, $varillas, $varillasRes) : '';
+            $camTxt = $inicioGrupo ? $camaraFrenoPieTxt($inspeccion, (int)$n) : '';
           ?>
           <tr>
             <td class="ll-num"><?= $n ?></td>
             <td><?= $ll && ($ll->profundidad_mm ?? '') !== '' ? h((string)$ll->profundidad_mm) : '' ?></td>
             <td><?= $ll && ($ll->presion_psi ?? '') !== '' ? h((string)$ll->presion_psi) : '' ?></td>
-            <td style="font-size:5.6pt;line-height:1.1;"><?= $camTxt !== '' ? h($camTxt) : '' ?></td>
-            <td style="font-size:5.8pt;"><?= $varillaTxt !== '' ? h($varillaTxt) : '' ?></td>
+            <?php if ($inicioGrupo) : ?>
+            <td<?= $spanGrupo > 1 ? ' rowspan="' . (int)$spanGrupo . '"' : '' ?> style="font-size:6.2pt;text-align:center;vertical-align:middle;"><?= $camTxt !== '' ? h($camTxt) : '' ?></td>
+            <td<?= $spanGrupo > 1 ? ' rowspan="' . (int)$spanGrupo . '"' : '' ?> style="font-size:5.8pt;text-align:center;vertical-align:middle;"><?= $varillaTxt !== '' ? h($varillaTxt) : '' ?></td>
+            <?php endif; ?>
           </tr>
           <?php endforeach; ?>
         </tbody>
@@ -1132,23 +1265,36 @@ $pdfSymLl = static function (?string $vx) use ($mk): string {
             <th></th>
             <th></th>
             <th>LIMPIA</th>
-            <th style="font-size:5pt;">CORROÍDA<br/>DE ACEITE</th>
+            <th style="font-size:5pt;">CHORREADA<br/>DE ACEITE</th>
             <th>BUEN<br/>ESTADO</th>
-            <th></th>
+            <th>BUEN<br/>ESTADO</th>
           </tr>
         </thead>
         <tbody>
           <?php foreach ($numerosPie as $n):
-            $rin = $rinesByLlanta[$n] ?? null;
+            $inicioRin = \App\Validation\Nom068Formato::esInicioGrupoPieRines((int)$n, $tipoPieVar);
+            $spanRin = $inicioRin
+                ? \App\Validation\Nom068Formato::rowspanGrupoPieRines((int)$n, $maxPieN, $tipoPieVar)
+                : 1;
+            $nRin = \App\Validation\Nom068Formato::llantaInicioGrupoPieRines((int)$n, $tipoPieVar);
+            $rin = $rinesByLlanta[$nRin] ?? ($rinesByLlanta[$n] ?? null);
+            if ($inicioRin && $spanRin > 1 && $rin === null) {
+                $nPar = $nRin + 1;
+                $rin = $rinesByLlanta[$nPar] ?? null;
+            }
             $maza = strtoupper((string)($rin->maza_cumple ?? ''));
+            $rsAttr = $spanRin > 1 ? ' rowspan="' . (int)$spanRin . '"' : '';
+            $rsStyle = 'text-align:center;vertical-align:middle;';
           ?>
           <tr>
             <td class="ll-num"><?= $n ?></td>
-            <td><?= $rin && ($rin->num_sujetadores ?? '') !== '' && ($rin->num_sujetadores ?? null) !== null ? h((string)$rin->num_sujetadores) : '' ?></td>
-            <td><?= $maza === 'CUMPLE' ? '✓' : '' ?></td>
-            <td><?= $maza === 'NO CUMPLE' ? '✗' : '' ?></td>
-            <td><?= $maza === 'N/A' ? '✓' : '' ?></td>
-            <td><?= $rin ? h($pdfSymLl($rin->balero_cumple ?? null)) : '' ?></td>
+            <?php if ($inicioRin) : ?>
+            <td<?= $rsAttr ?> style="<?= $rsStyle ?>"><?= $rin && ($rin->num_sujetadores ?? '') !== '' && ($rin->num_sujetadores ?? null) !== null ? h((string)$rin->num_sujetadores) : '' ?></td>
+            <td<?= $rsAttr ?> style="<?= $rsStyle ?>"><?= $maza === 'CUMPLE' ? '✓' : ($maza === 'NO CUMPLE' ? 'NO' : '') ?></td>
+            <td<?= $rsAttr ?> style="<?= $rsStyle ?>"><?= $maza === 'CUMPLE' ? 'NO' : ($maza === 'NO CUMPLE' ? '✓' : '') ?></td>
+            <td<?= $rsAttr ?> style="<?= $rsStyle ?>">✓</td><!-- MAZA BUEN ESTADO: regla fija -->
+            <td<?= $rsAttr ?> style="<?= $rsStyle ?>"><?= $rin ? h($pdfSymLl($rin->balero_cumple ?? null)) : '' ?></td>
+            <?php endif; ?>
           </tr>
           <?php endforeach; ?>
         </tbody>
@@ -1156,6 +1302,31 @@ $pdfSymLl = static function (?string $vx) use ($mk): string {
     </td>
   </tr>
 </table>
+
+<?php if ($medicionesComplementarias !== []): ?>
+<!-- Mediciones complementarias (antes de observaciones) -->
+<table class="chk" cellspacing="0">
+  <tbody>
+    <tr class="sec-row"><td colspan="8"><?= $tipoFormulario === 'F18_CAMION'
+        ? 'MEDICIONES COMPLEMENTARIAS (XXXV / XXXVIII)'
+        : 'MEDICIONES COMPLEMENTARIAS (XXXIX / XXXV / XXXVIII)' ?></td></tr>
+    <?php foreach ($medicionesComplementarias as $f):
+      $m = $mk($f['val'] ?? null);
+    ?>
+    <tr class="dr">
+      <td class="c-nom"><?= h($f['nom']) ?></td>
+      <td class="c-dvm"><?= $f['d'] ?></td>
+      <td class="c-dvm"><?= $f['v'] ?></td>
+      <td class="c-dvm"><?= $f['m'] ?></td>
+      <td class="c-txt"><?= h($f['txt']) ?></td>
+      <td class="c-chk c-cumple"><?= $m['c'] ?></td>
+      <td class="c-chk c-nocumple"><?= $m['n'] ?></td>
+      <td class="c-na"><?= $m['a'] ?></td>
+    </tr>
+    <?php endforeach; ?>
+  </tbody>
+</table>
+<?php endif; ?>
 
 <!-- Observaciones estructuradas (6 filas) -->
 <table class="obs-tbl" cellspacing="0">
@@ -1212,7 +1383,16 @@ $pdfSymLl = static function (?string $vx) use ($mk): string {
     <td style="width:40%;">
       <div class="firma-lbl">Unidad de Inspección</div>
       <div class="firma-nombre"><?= $uvNombre ?></div>
-      <div style="height:38px;"></div>
+      <?php if ($uvAprobacion !== ''): ?>
+        <div class="firma-nombre" style="font-size:6.2pt;margin-bottom:2px;">No. aprobación: <?= $uvAprobacion ?></div>
+      <?php endif; ?>
+      <?php if (($selloDataUri ?? '') !== ''): ?>
+        <div class="firma-img">
+          <img src="<?= h($selloDataUri) ?>" alt="Sello / Representante UV"/>
+        </div>
+      <?php else: ?>
+        <div style="height:38px;"></div>
+      <?php endif; ?>
       <div class="firma-line"></div>
       <div class="firma-sub">SELLO / REPRESENTANTE UV</div>
     </td>

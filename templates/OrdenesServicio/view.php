@@ -16,6 +16,7 @@ $uv = $orden->unidades_inspeccion ?? $orden->unidad_inspeccion ?? null;
     <p><strong>UV acreditación / aprobación:</strong>
       <?= h($uv->numero_acreditacion ?? '—') ?> / <?= h($uv->numero_aprobacion ?? ($uv->aprobacion ?? '—')) ?>
     </p>
+    <p><strong>Número de máquina (equipo):</strong> <?= h($orden->numero_equipo ?? '—') ?></p>
     <p><strong>Estatus:</strong> <?= h((string)$orden->estatus) ?></p>
     <p><strong>Inspección ligada:</strong> <?= h($orden->inspeccion->folio_dictamen ?? ('#' . (string)($orden->inspeccion_id ?? '—'))) ?></p>
     <?php if (!empty($orden->inspeccion_id)) : ?>

@@ -9,6 +9,7 @@ use App\Model\Table\VehiculosTable;
 use App\Pdf\ModuloImpresionValores;
 use App\Pdf\MotrizFpdiPdf;
 use App\Pdf\RemolqueFpdiPdf;
+use App\Validation\InspeccionMexico;
 use App\Validation\TipoVehiculoRequisitos;
 use Cake\Http\Exception\ForbiddenException;
 use Cake\Http\Response;
@@ -151,12 +152,13 @@ class InspeccionesController extends AppController
             );
             // BUG-1: reconstruir folio_dictamen desde UI (tipo+resto) si el hidden llegó vacío.
             $data = $this->_resolverFolioDictamenDesdeRequest($data);
+            [$data, $errCp] = $this->_normalizarYValidarCodigoPostalPropietario($data);
 
             $tipoFormulario = strtoupper(trim((string)($data['tipo_formulario'] ?? 'F17_TRACTO')));
             $folioDictamen = trim((string)($data['folio_dictamen'] ?? ''));
             $errFolioForm = TipoVehiculoRequisitos::validarFormularioContraFolioDictamen($folioDictamen, $tipoFormulario);
-            if ($errFolioForm !== null) {
-                $this->Flash->error($errFolioForm);
+            if ($errCp !== null || $errFolioForm !== null) {
+                $this->Flash->error($errCp ?? $errFolioForm);
                 $seccionesTmp = SubtablasInspeccion::seccionesParaFormulario($tipoFormulario);
                 $associatedTmp = array_merge(['Vehiculos' => ['associated' => ['Propietarios']]], $seccionesTmp);
                 $inspeccion = $this->Inspecciones->patchEntity($inspeccion, $data, [
@@ -181,19 +183,15 @@ class InspeccionesController extends AppController
                 $inspeccion->tecnico_id = $alcance;
             }
 
-            // Validar fotos sólo si el usuario subió algo (son opcionales)
+            // Fotos opcionales: validar sólo si el usuario subió algo.
             $fotoError = null;
             if ($this->_fotoFueSubida($up1) && !$this->_fotoVehiculoValida($up1)) {
                 $fotoError = 'La foto 1 no es válida (JPG, PNG o WebP, máximo 8 MB).';
             } elseif ($this->_fotoFueSubida($up2) && !$this->_fotoVehiculoValida($up2)) {
                 $fotoError = 'La foto 2 no es válida (JPG, PNG o WebP, máximo 8 MB).';
             }
-            $docError = null;
-            if ($this->_docFueSubido($docAnt) && !$this->_docAdjuntoValido($docAnt)) {
-                $docError = 'El documento de inspección anterior no es válido (PDF, JPG o PNG, máximo 12 MB).';
-            } elseif ($this->_docFueSubido($docTf) && !$this->_docAdjuntoValido($docTf)) {
-                $docError = 'El documento de tarjeta/factura no es válido (PDF, JPG o PNG, máximo 12 MB).';
-            }
+            // Documentos obligatorios en alta.
+            $docError = $this->_errorDocumentosObligatorios($docAnt, $docTf, '', '');
 
             if ($fotoError !== null) {
                 $this->Flash->error($fotoError);
@@ -249,6 +247,137 @@ class InspeccionesController extends AppController
         $this->_cargarCatalogos($inspeccion);
         $this->set(compact('inspeccion', 'tipoFormulario'));
         return null;
+    }
+
+    /**
+     * JSON: registrar una marca nueva en el catálogo (modal del formulario de inspección).
+     * POST /inspecciones/agregar-marca  body: { marca: "..." }
+     */
+    public function agregarMarca(): Response
+    {
+        $this->request->allowMethod(['post']);
+        $this->_asegurarTablaMarcasVehiculo();
+
+        $data = $this->request->getData();
+        if (!is_array($data) || $data === []) {
+            $raw = (string)$this->request->getBody();
+            $decoded = json_decode($raw, true);
+            if (is_array($decoded)) {
+                $data = $decoded;
+            }
+        }
+        $nombreRaw = is_array($data) ? (string)($data['marca'] ?? '') : '';
+        $marca = mb_strtoupper(trim(preg_replace('/\s+/u', ' ', $nombreRaw) ?? ''), 'UTF-8');
+        if ($marca === '') {
+            return $this->_jsonMarca(['ok' => false, 'error' => 'Indique el nombre de la marca.'], 422);
+        }
+        if (mb_strlen($marca, 'UTF-8') > 80) {
+            return $this->_jsonMarca(['ok' => false, 'error' => 'Marca demasiado larga (máx. 80).'], 422);
+        }
+
+        $tabla = $this->fetchTable('MarcasVehiculo');
+        $existente = $tabla->find()->where(['nombre' => $marca])->first();
+        if ($existente !== null) {
+            if (empty($existente->activo)) {
+                $existente = $tabla->patchEntity($existente, ['activo' => true]);
+                if (!$tabla->save($existente)) {
+                    return $this->_jsonMarca(['ok' => false, 'error' => 'No se pudo reactivar la marca.'], 422);
+                }
+            }
+
+            return $this->_jsonMarca(['ok' => true, 'marca' => $marca, 'existe' => true]);
+        }
+
+        $entity = $tabla->newEntity(['nombre' => $marca, 'activo' => true]);
+        if (!$tabla->save($entity)) {
+            // Fallback al archivo escribible si la BD falla.
+            $resultado = VehiculosTable::registrarMarca($marca);
+            $status = !empty($resultado['ok']) ? 200 : 422;
+
+            return $this->_jsonMarca($resultado, $status);
+        }
+
+        return $this->_jsonMarca(['ok' => true, 'marca' => $marca, 'existe' => false]);
+    }
+
+    /**
+     * Select2 · JSON: buscar marcas activas para el formulario de inspección.
+     * GET /inspecciones/buscar-marca?q=texto
+     */
+    public function buscarMarca(): Response
+    {
+        $this->request->allowMethod(['get']);
+        $this->_asegurarTablaMarcasVehiculo();
+
+        $q = trim((string)$this->request->getQuery('q'));
+        $results = [];
+        try {
+            $tabla = $this->fetchTable('MarcasVehiculo');
+            $query = $tabla->find()
+                ->select(['nombre'])
+                ->where(['activo' => 1])
+                ->orderByAsc('nombre')
+                ->limit(40)
+                ->enableHydration(false);
+            if ($q !== '') {
+                $like = '%' . str_replace(['%', '_'], ['\\%', '\\_'], mb_strtoupper($q, 'UTF-8')) . '%';
+                $query->where(['MarcasVehiculo.nombre LIKE' => $like]);
+            }
+            foreach ($query->all() as $row) {
+                $n = (string)($row['nombre'] ?? '');
+                if ($n !== '') {
+                    $results[] = ['id' => $n, 'text' => $n];
+                }
+            }
+        } catch (\Throwable $e) {
+            // Si la BD no está lista, busca en el catálogo de archivos.
+            foreach (VehiculosTable::opcionesMarca() as $clave => $etiqueta) {
+                $n = (string)$clave;
+                if ($q !== '' && mb_stripos($n, $q) === false && mb_stripos((string)$etiqueta, $q) === false) {
+                    continue;
+                }
+                $results[] = ['id' => $n, 'text' => (string)$etiqueta];
+                if (count($results) >= 40) {
+                    break;
+                }
+            }
+        }
+
+        return $this->response
+            ->withType('application/json')
+            ->withStringBody(json_encode(['results' => $results], JSON_UNESCAPED_UNICODE));
+    }
+
+    /**
+     * @param array<string, mixed> $payload
+     */
+    private function _jsonMarca(array $payload, int $status = 200): Response
+    {
+        return $this->response
+            ->withStatus($status)
+            ->withType('application/json')
+            ->withStringBody(json_encode($payload, JSON_UNESCAPED_UNICODE));
+    }
+
+    private function _asegurarTablaMarcasVehiculo(): void
+    {
+        try {
+            $conn = $this->fetchTable('MarcasVehiculo')->getConnection();
+            $conn->execute(
+                'CREATE TABLE IF NOT EXISTS `marcas_vehiculo` (
+                  `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
+                  `nombre` VARCHAR(120) NOT NULL,
+                  `activo` TINYINT(1) NOT NULL DEFAULT 1,
+                  `created` DATETIME NULL DEFAULT NULL,
+                  `modified` DATETIME NULL DEFAULT NULL,
+                  PRIMARY KEY (`id`),
+                  UNIQUE KEY `uq_marcas_vehiculo_nombre` (`nombre`),
+                  KEY `idx_marcas_vehiculo_activo` (`activo`)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
+            );
+        } catch (\Throwable $e) {
+            // Las acciones fallarán con el error normal si la BD no responde.
+        }
     }
 
     /**
@@ -366,14 +495,15 @@ class InspeccionesController extends AppController
             );
             // BUG-1: reconstruir folio_dictamen desde UI (tipo+resto) si el hidden llegó vacío.
             $editData = $this->_resolverFolioDictamenDesdeRequest($editData);
+            [$editData, $errCpEdit] = $this->_normalizarYValidarCodigoPostalPropietario($editData);
 
             $tipoFormulario = strtoupper(trim((string)($editData['tipo_formulario'] ?? $tipoFormulario)));
             $errFolioFormEdit = TipoVehiculoRequisitos::validarFormularioContraFolioDictamen(
                 trim((string)($editData['folio_dictamen'] ?? '')),
                 $tipoFormulario
             );
-            if ($errFolioFormEdit !== null) {
-                $this->Flash->error($errFolioFormEdit);
+            if ($errCpEdit !== null || $errFolioFormEdit !== null) {
+                $this->Flash->error($errCpEdit ?? $errFolioFormEdit);
                 $secciones = SubtablasInspeccion::seccionesParaFormulario($tipoFormulario);
                 $associated = array_merge(['Vehiculos' => ['associated' => ['Propietarios']]], $secciones);
                 $inspeccion = $this->Inspecciones->patchEntity(
@@ -400,19 +530,15 @@ class InspeccionesController extends AppController
                 $inspeccion->tecnico_id = $alcance;
             }
 
-            // Validar fotos sólo si el usuario subió algo
+            // Fotos opcionales: validar sólo si el usuario subió algo.
             $fotoError = null;
             if ($this->_fotoFueSubida($up1) && !$this->_fotoVehiculoValida($up1)) {
                 $fotoError = 'La foto 1 no es válida (JPG, PNG o WebP, máximo 8 MB).';
             } elseif ($this->_fotoFueSubida($up2) && !$this->_fotoVehiculoValida($up2)) {
                 $fotoError = 'La foto 2 no es válida (JPG, PNG o WebP, máximo 8 MB).';
             }
-            $docError = null;
-            if ($this->_docFueSubido($docAnt) && !$this->_docAdjuntoValido($docAnt)) {
-                $docError = 'El documento de inspección anterior no es válido (PDF, JPG o PNG, máximo 12 MB).';
-            } elseif ($this->_docFueSubido($docTf) && !$this->_docAdjuntoValido($docTf)) {
-                $docError = 'El documento de tarjeta/factura no es válido (PDF, JPG o PNG, máximo 12 MB).';
-            }
+            // Documentos obligatorios (en edición vale archivo previo o uno nuevo válido).
+            $docError = $this->_errorDocumentosObligatorios($docAnt, $docTf, $prevDocAnt, $prevDocTf);
 
             if ($fotoError !== null) {
                 $this->Flash->error($fotoError);
@@ -597,15 +723,27 @@ class InspeccionesController extends AppController
         $firmaDataUri = $this->_pdfFirmaDataUri(
             (string)($inspeccion->tecnico->pathFirma ?? '')
         );
+        $selloDataUri = $this->_pdfSelloDataUri(
+            (string)($inspeccion->unidades_inspeccion?->pathSello ?? '')
+        );
         $this->set('tipoFormulario', $tipo);
-        $this->set(compact('inspeccion', 'logoDataUri', 'firmaDataUri'));
+        $this->set(compact('inspeccion', 'logoDataUri', 'firmaDataUri', 'selloDataUri'));
+
+        // Plantilla por formato: F-18/F-19/F-20/F-21 aislados para no afectar F-17 u otros.
+        $templateLista = match (strtoupper(trim((string)$tipo))) {
+            'F18_CAMION' => 'pdf_lista_f18',
+            'F19_REMOLQUE' => 'pdf_lista_f19',
+            'F20_DOLLY' => 'pdf_lista_f20',
+            'F21_AUTOBUS' => 'pdf_lista_f21',
+            default => 'pdf_lista',
+        };
 
         $this->autoRender = false;
         $this->viewBuilder()
             ->setClassName('Cake\View\View')
             ->disableAutoLayout()
             ->setTemplatePath('Inspecciones')
-            ->setTemplate('pdf_lista');
+            ->setTemplate($templateLista);
 
         $html = $this->createView()->render();
 
@@ -616,7 +754,9 @@ class InspeccionesController extends AppController
 
         $dompdf = new Dompdf($options);
         $dompdf->loadHtml($html, 'UTF-8');
-        $dompdf->setPaper('letter', 'portrait');
+        // Oficiales F-17..F-21 en camposTXT son A4; F-18 se fuerza A4 para coincidir con F-18.pdf.
+        $paper = strtoupper(trim((string)$tipo)) === 'F18_CAMION' ? 'A4' : 'letter';
+        $dompdf->setPaper($paper, 'portrait');
         $dompdf->render();
 
         $folio = (string)($inspeccion->folio_dictamen ?? '');
@@ -672,7 +812,7 @@ class InspeccionesController extends AppController
     }
 
     /**
-     * Plantilla remolque: /inspecciones/html-remolque/{id} — PDF con base_remolque.pdf (FPDI).
+     * Plantilla remolque: /inspecciones/html-remolque/{id} — PDF solo datos (sin PDF base detrás).
      */
     public function htmlRemolque(int $id): Response
     {
@@ -699,9 +839,16 @@ class InspeccionesController extends AppController
         $firmaAbsoluta = $this->_pdfFirmaRutaAbsoluta(
             (string)($inspeccion->tecnico->pathFirma ?? '')
         );
+        // ?fondo=1 → muestra PDF base (calibración); por defecto solo texto.
+        $conFondo = in_array(
+            strtolower((string)$this->request->getQuery('fondo', '')),
+            ['1', 'true', 'si', 'yes'],
+            true
+        );
         $bin = RemolqueFpdiPdf::generar(
             $inspeccion,
-            $firmaAbsoluta !== '' ? $firmaAbsoluta : null
+            $firmaAbsoluta !== '' ? $firmaAbsoluta : null,
+            $conFondo
         );
 
         $folio = (string)($inspeccion->folio_dictamen ?? '');
@@ -711,11 +858,14 @@ class InspeccionesController extends AppController
         return $this->response
             ->withType('application/pdf')
             ->withHeader('Content-Disposition', 'inline; filename="' . $filename . '"')
+            ->withHeader('Cache-Control', 'no-store, no-cache, must-revalidate')
+            ->withHeader('Pragma', 'no-cache')
             ->withStringBody($bin);
     }
 
     /**
-     * Plantilla motriz: /inspecciones/html-motriz/{id} — PDF con base_motriz.pdf (FPDI).
+     * Plantilla motriz: /inspecciones/html-motriz/{id} — PDF FPDI.
+     * ?fondo=1 → muestra plantilla base (calibración); por defecto solo texto.
      */
     public function htmlMotriz(int $id): Response
     {
@@ -742,9 +892,16 @@ class InspeccionesController extends AppController
         $firmaAbsoluta = $this->_pdfFirmaRutaAbsoluta(
             (string)($inspeccion->tecnico->pathFirma ?? '')
         );
+        // ?fondo=1 → muestra PDF base (calibración); por defecto solo texto.
+        $conFondo = in_array(
+            strtolower((string)$this->request->getQuery('fondo', '')),
+            ['1', 'true', 'si', 'yes'],
+            true
+        );
         $bin = MotrizFpdiPdf::generar(
             $inspeccion,
-            $firmaAbsoluta !== '' ? $firmaAbsoluta : null
+            $firmaAbsoluta !== '' ? $firmaAbsoluta : null,
+            $conFondo
         );
 
         $folio = (string)($inspeccion->folio_dictamen ?? '');
@@ -754,6 +911,8 @@ class InspeccionesController extends AppController
         return $this->response
             ->withType('application/pdf')
             ->withHeader('Content-Disposition', 'inline; filename="' . $filename . '"')
+            ->withHeader('Cache-Control', 'no-store, no-cache, must-revalidate')
+            ->withHeader('Pragma', 'no-cache')
             ->withStringBody($bin);
     }
 
@@ -822,6 +981,54 @@ class InspeccionesController extends AppController
         }
 
         return 'data:image/png;base64,' . base64_encode($bin);
+    }
+
+    /**
+     * Ruta absoluta segura del sello UV (webroot/uploads/sellos/).
+     */
+    private function _pdfSelloRutaAbsoluta(string $pathSello): string
+    {
+        $pathSello = trim($pathSello);
+        if ($pathSello === '' || $pathSello[0] !== '/') {
+            return '';
+        }
+
+        $filePath = WWW_ROOT . str_replace('/', DS, substr($pathSello, 1));
+        $base     = realpath(WWW_ROOT . 'uploads' . DS . 'sellos');
+        $real     = realpath($filePath);
+
+        if ($base === false || $real === false || !str_starts_with($real, $base)) {
+            return '';
+        }
+        if (!is_file($real) || !is_readable($real)) {
+            return '';
+        }
+
+        return $real;
+    }
+
+    /**
+     * Convierte el sello de la UV a data:URI para Dompdf (PNG/JPG en uploads/sellos/).
+     */
+    private function _pdfSelloDataUri(string $pathSello): string
+    {
+        $real = $this->_pdfSelloRutaAbsoluta($pathSello);
+        if ($real === '') {
+            return '';
+        }
+
+        $bin = @file_get_contents($real);
+        if ($bin === false || $bin === '') {
+            return '';
+        }
+
+        $ext = strtolower(pathinfo($real, PATHINFO_EXTENSION));
+        $mime = match ($ext) {
+            'jpg', 'jpeg' => 'image/jpeg',
+            default => 'image/png',
+        };
+
+        return 'data:' . $mime . ';base64,' . base64_encode($bin);
     }
 
     private function _pdfLogoDataUri(): string
@@ -905,7 +1112,10 @@ class InspeccionesController extends AppController
     private function _filtrosConsultaInspeccionesFromRequest(): array
     {
         $raw = $this->request->getQueryParams();
-        $claves = ['resultado', 'fecha_desde', 'fecha_hasta', 'placa', 'niv', 'tecnico_id'];
+        $claves = [
+            'resultado', 'fecha_desde', 'fecha_hasta', 'placa', 'niv', 'tecnico_id',
+            'folio', 'tipo_formulario', 'mostrar_canceladas', 'q',
+        ];
         $filtros = array_intersect_key(is_array($raw) ? $raw : [], array_flip($claves));
         $filtros = array_filter(
             $filtros,
@@ -961,10 +1171,31 @@ class InspeccionesController extends AppController
 
     private function _cargarCatalogos(?Entity $inspeccion = null): void
     {
-        $tecnicos   = $this->fetchTable('Tecnicos')
+        $this->_asegurarColumnasVarillaS4();
+
+        $tecnicosTable = $this->fetchTable('Tecnicos');
+        $tecnicos = $tecnicosTable
             ->find('list', keyField: 'id', valueField: 'nombre')
             ->where(['activo' => 1])
             ->toArray();
+
+        // Mapa id → numero_equipo para autollenar el campo al seleccionar técnico.
+        $tecnicosInfo = [];
+        $tecSelect = ['id', 'nombre'];
+        if ($tecnicosTable->getSchema()->hasColumn('numero_equipo')) {
+            $tecSelect[] = 'numero_equipo';
+        }
+        foreach (
+            $tecnicosTable
+                ->find()
+                ->select($tecSelect)
+                ->where(['activo' => 1])
+                ->all() as $tecRow
+        ) {
+            $tecnicosInfo[(string)$tecRow->get('id')] = [
+                'numero_equipo' => (string)($tecRow->get('numero_equipo') ?? ''),
+            ];
+        }
 
         $unidadesTable = $this->fetchTable('UnidadesInspeccion');
 
@@ -1007,7 +1238,8 @@ class InspeccionesController extends AppController
         $vehiculoTieneEjes = $schemaVeh->hasColumn('ejes');
         $tiposCapacidadVehiculo = VehiculosTable::opcionesTipoCapacidad();
 
-        $marcasVehiculo = require CONFIG . 'vehiculo_marcas.php';
+        // Select2 AJAX carga el catálogo; solo hace falta la marca ya seleccionada (edición).
+        $marcasVehiculo = [];
         $estadosMexico = is_readable(CONFIG . 'mexico_estados.php') ? require CONFIG . 'mexico_estados.php' : [];
 
         $tecnicoSesionId = $this->alcanceTecnicoId();
@@ -1050,6 +1282,7 @@ class InspeccionesController extends AppController
 
         $this->set(compact(
             'tecnicos',
+            'tecnicosInfo',
             'unidades',
             'unidadesInfo',
             'propietarios',
@@ -1117,6 +1350,35 @@ class InspeccionesController extends AppController
     }
 
     /**
+     * C.P. del propietario en alta/edición: solo 5 dígitos (F-17…F-21).
+     *
+     * @param array<string, mixed> $data
+     * @return array{0: array<string, mixed>, 1: ?string}
+     */
+    private function _normalizarYValidarCodigoPostalPropietario(array $data): array
+    {
+        if (!isset($data['vehiculo']) || !is_array($data['vehiculo'])) {
+            return [$data, null];
+        }
+        if (!isset($data['vehiculo']['propietario']) || !is_array($data['vehiculo']['propietario'])) {
+            return [$data, null];
+        }
+        if (!array_key_exists('codigo_postal', $data['vehiculo']['propietario'])) {
+            return [$data, null];
+        }
+
+        $cp = preg_replace('/\D+/', '', (string)$data['vehiculo']['propietario']['codigo_postal']);
+        $cp = substr((string)$cp, 0, 5);
+        $data['vehiculo']['propietario']['codigo_postal'] = $cp;
+
+        if (!InspeccionMexico::codigoPostalValido($cp)) {
+            return [$data, 'Código postal: debe tener exactamente 5 dígitos numéricos.'];
+        }
+
+        return [$data, null];
+    }
+
+    /**
      * Persiste el número de equipo del operador (F-04 / encabezado lista).
      */
     private function _sincronizarNumeroEquipoTecnico(int $tecnicoId, string $numeroEquipo): void
@@ -1141,6 +1403,45 @@ class InspeccionesController extends AppController
             $tecnicos->save($tec);
         } catch (\Throwable $e) {
             // No bloquear el guardado de la inspección si falla el catálogo.
+        }
+    }
+
+    /**
+     * F-19 S4: pares de varilla 13-14 y 15-16.
+     */
+    private function _asegurarColumnasVarillaS4(): void
+    {
+        static $done = false;
+        if ($done) {
+            return;
+        }
+        $done = true;
+        try {
+            $conn = \Cake\Datasource\ConnectionManager::get('default');
+            $schema = $conn->getSchemaCollection()->describe('inspecciones');
+            $cols = [
+                'varilla_ll13_14_mm' => 'DECIMAL(6,2) NULL DEFAULT NULL',
+                'varilla_ll13_14_resultado' => 'VARCHAR(20) NULL DEFAULT NULL',
+                'varilla_ll15_16_mm' => 'DECIMAL(6,2) NULL DEFAULT NULL',
+                'varilla_ll15_16_resultado' => 'VARCHAR(20) NULL DEFAULT NULL',
+            ];
+            $added = false;
+            foreach ($cols as $name => $ddl) {
+                if ($schema->hasColumn($name)) {
+                    continue;
+                }
+                $conn->execute('ALTER TABLE inspecciones ADD COLUMN `' . $name . '` ' . $ddl);
+                $added = true;
+            }
+            if ($added) {
+                $schemaCollection = $conn->getSchemaCollection();
+                if (method_exists($schemaCollection, 'cacheMetadata')) {
+                    $schemaCollection->cacheMetadata(false);
+                }
+                $this->Inspecciones->setSchema($schemaCollection->describe('inspecciones'));
+            }
+        } catch (\Throwable $e) {
+            // Sin permisos / tabla ausente: no bloquear el formulario.
         }
     }
 
@@ -1202,21 +1503,51 @@ class InspeccionesController extends AppController
         $inspeccion->vehiculo_presentado = 'VACIO';
 
         $inspeccion->tipo_camara_frenado = 'CAMARA DE FRENO TIPO ABRAZADERA';
-        $inspeccion->camara_abrazadera_mm = 30;
+        $inspeccion->camara_abrazadera_mm = 24;
+        $inspeccion->camara_abrazadera_trasera_mm = 30;
+        if ($this->Inspecciones->getSchema()->hasColumn('volante_cm')) {
+            $parVh = \App\Validation\InspeccionMexico::parVolanteHolguraAleatorio();
+            $inspeccion->volante_cm = $parVh['volante'];
+            $inspeccion->holgura_cm = $parVh['holgura'];
+        }
 
-        $inspeccion->varilla_ll1_2_mm = 35;
-        $inspeccion->varilla_ll3_4_mm = 35;
-        $inspeccion->varilla_ll5_6_mm = 35;
-        $inspeccion->varilla_ll7_8_mm = 35;
+        $varillaDef = \App\Validation\InspeccionMexico::VARILLA_MM_DEFAULT;
+        $inspeccion->varilla_ll1_mm = $varillaDef;
+        $inspeccion->varilla_ll2_mm = $varillaDef;
+        $inspeccion->varilla_ll3_mm = $varillaDef;
+        $inspeccion->varilla_ll4_mm = $varillaDef;
+        $inspeccion->varilla_ll1_2_mm = $varillaDef;
+        $inspeccion->varilla_ll3_4_mm = $varillaDef;
+        $inspeccion->varilla_ll5_6_mm = $varillaDef;
+        $inspeccion->varilla_ll7_8_mm = $varillaDef;
+        $inspeccion->varilla_ll9_10_mm = $varillaDef;
+        $inspeccion->varilla_ll11_12_mm = $varillaDef;
+        $inspeccion->varilla_ll13_14_mm = $varillaDef;
+        $inspeccion->varilla_ll15_16_mm = $varillaDef;
+        $inspeccion->varilla_ll1_resultado = 'CUMPLE';
+        $inspeccion->varilla_ll2_resultado = 'CUMPLE';
+        $inspeccion->varilla_ll3_resultado = 'CUMPLE';
+        $inspeccion->varilla_ll4_resultado = 'CUMPLE';
         $inspeccion->varilla_ll1_2_resultado = 'CUMPLE';
         $inspeccion->varilla_ll3_4_resultado = 'CUMPLE';
         $inspeccion->varilla_ll5_6_resultado = 'CUMPLE';
         $inspeccion->varilla_ll7_8_resultado = 'CUMPLE';
+        $inspeccion->varilla_ll9_10_resultado = 'CUMPLE';
+        $inspeccion->varilla_ll11_12_resultado = 'CUMPLE';
+        $inspeccion->varilla_ll13_14_resultado = 'CUMPLE';
+        $inspeccion->varilla_ll15_16_resultado = 'CUMPLE';
 
         $cumple = static fn (): array => array_fill_keys([
             'luces_freno', 'direccionales', 'luces_intermitentes', 'placa_identificacion', 'luz_placa_trasera',
+            'luces_traseras', 'luz_alta_baja', 'luz_diurna', 'luces_peligro', 'faros_principales',
+            'faros_altura', 'faros_montaje', 'galibo_delantero', 'luz_niebla', 'parabrisas',
+            'ventanas_laterales', 'ventana_posterior', 'limpiaparabrisas', 'inyectores_agua',
+            'defensa_delantera', 'luces_reversa', 'galibo_trasero', 'demarcadoras_laterales',
+            'espejos_retrovisores',
         ], 'CUMPLE');
-        $inspeccion->set('inspeccion_iluminacion', $this->Inspecciones->InspeccionIluminacion->newEntity($cumple()));
+        $inspeccion->set('inspeccion_iluminacion', $this->Inspecciones->InspeccionIluminacion->newEntity($cumple() + [
+            'parabrisas_tipo' => 'AS-1',
+        ]));
 
         $inspeccion->set('inspeccion_freno', $this->Inspecciones->InspeccionFrenos->newEntity([
             'frenos_abs' => 'CUMPLE',
@@ -1224,6 +1555,28 @@ class InspeccionesController extends AppController
             'mecanismo_camara' => 'CUMPLE',
             'componentes_mecanicos' => 'CUMPLE',
             'frenos_tambor' => 'CUMPLE',
+            // F-18 C2L / C2L6 (hidráulicos): toda la sección predeterminada en CUMPLE.
+            'freno_estacionamiento' => 'CUMPLE',
+            'hid_luz_indicadora' => 'CUMPLE',
+            'hid_cables_acoplamiento' => 'CUMPLE',
+            'estac_balata' => 'CUMPLE',
+            'hid_libera_hidraulico' => 'CUMPLE',
+            'hid_recorrido' => 'CUMPLE',
+            'hid_indicador_advertencia' => 'CUMPLE',
+            'hid_deposito_liquido' => 'CUMPLE',
+            'hid_pedal' => 'CUMPLE',
+            'hid_lineas_mangueras' => 'CUMPLE',
+            'hid_valvulas_unidirec' => 'CUMPLE',
+            'hid_abrazaderas' => 'CUMPLE',
+            'hid_booster' => 'CUMPLE',
+            'hid_reserva_vacio' => 'CUMPLE',
+            'hid_bomba_vacio' => 'CUMPLE',
+            'hid_liquido_condicion' => 'CUMPLE',
+            'hid_cilindros' => 'CUMPLE',
+            'hid_tambores' => 'CUMPLE',
+            'hid_disco' => 'CUMPLE',
+            'hid_calipers' => 'CUMPLE',
+            'hid_pastas_freno' => 'CUMPLE',
         ]));
 
         $inspeccion->set('inspeccion_suspension', $this->Inspecciones->InspeccionSuspension->newEntity(array_fill_keys([
@@ -1234,17 +1587,39 @@ class InspeccionesController extends AppController
 
         $inspeccion->set('inspeccion_chasis', $this->Inspecciones->InspeccionChasis->newEntity(array_fill_keys([
             'convertidor', 'vigas_chasis', 'sujetadores_chasis', 'travesanos', 'mangueras_tuberia',
-        ], 'CUMPLE')));
+            // Diesel/Gasolina activo por defecto; Gas LP ó Gas natural N/A (F-17 / F-18 / F-21).
+            'combustible_tapon', 'combustible_tanque', 'combustible_cubierta_jaula', 'combustible_lineas_bomba',
+            'escape_multiple', 'escape_mofle', 'escape_tubos', 'escape_montaje', 'bateria',
+        ], 'CUMPLE') + array_fill_keys([
+            'gaslp_soporte_tanque', 'gaslp_etiqueta_cilindro', 'gaslp_condicion', 'gaslp_cinchos',
+        ], 'N/A')));
 
         $inspeccion->set('inspeccion_sistema_aire', $this->Inspecciones->InspeccionSistemaAire->newEntity(array_fill_keys([
             'deposito_aire', 'fugas_sistema', 'valvulas_sistema', 'valvulas_relevo_linea_azul',
             'valvulas_control', 'componentes_conexiones', 'manometro', 'proteccion_camion',
-        ], 'CUMPLE')));
+            'compresor_aire', 'gobernador', 'dispositivo_baja_presion',
+            'caida_presion_cumple', 'tiempo_carga_cumple',
+            'conexiones_aire_remolque', 'conexiones_elec_remolque', 'valvula_control_remolque',
+        ], 'CUMPLE') + [
+            'caida_presion_psi' => \App\Validation\InspeccionMexico::CAIDA_PRESION_PSI_DEFAULT,
+            'tiempo_carga_min' => \App\Validation\InspeccionMexico::tiempoCargaMinDesdeSeg(
+                \App\Validation\InspeccionMexico::TIEMPO_CARGA_SEG_DEFAULT
+            ),
+            'presion_cierre_con_disp' => \App\Validation\InspeccionMexico::PRESION_CIERRE_CON_DISP_DEFAULT,
+            'presion_cierre_sin_disp' => \App\Validation\InspeccionMexico::PRESION_CIERRE_SIN_DISP_DEFAULT,
+        ]));
 
+        $esDollyDef = strtoupper(trim((string)($inspeccion->tipo_formulario ?? ''))) === 'F20_DOLLY';
+        $defAcopl = $esDollyDef ? 'N/A' : 'CUMPLE';
+        // Quinta fija vs oscilante: excluyentes. T2/T3: fija CUMPLE + oscilante N/A.
         $inspeccion->set('inspeccion_acoplamiento', $this->Inspecciones->InspeccionAcoplamiento->newEntity(array_fill_keys([
             'quinta_rueda', 'deslizadores', 'gancho_pinzon', 'ojo_lanza', 'barra_traccion',
             'quinta_rueda_oscilante', 'manija_operacion', 'cadenas_sujetadores', 'capacidad_arrastre',
-        ], 'N/A')));
+        ], $defAcopl) + (
+            $esDollyDef
+                ? []
+                : ['quinta_rueda_oscilante' => 'N/A']
+        )));
 
         $llantasTbl = $this->Inspecciones->InspeccionLlantas;
         $inspeccion->inspeccion_llantas = $llantasTbl->newEntities([]);
@@ -1263,6 +1638,34 @@ class InspeccionesController extends AppController
     private function _fotoFueSubida(?UploadedFileInterface $f): bool
     {
         return $f !== null && $f->getError() !== UPLOAD_ERR_NO_FILE;
+    }
+
+    /**
+     * Valida documentos obligatorios: inspección anterior + tarjeta/factura.
+     * En edición, un archivo ya guardado cuenta si no se sube uno nuevo.
+     */
+    private function _errorDocumentosObligatorios(
+        ?UploadedFileInterface $docAnt,
+        ?UploadedFileInterface $docTf,
+        string $prevDocAnt,
+        string $prevDocTf
+    ): ?string {
+        if ($this->_docFueSubido($docAnt) && !$this->_docAdjuntoValido($docAnt)) {
+            return 'El documento de inspección anterior no es válido (PDF, JPG o PNG, máximo 12 MB).';
+        }
+        if ($this->_docFueSubido($docTf) && !$this->_docAdjuntoValido($docTf)) {
+            return 'El documento de tarjeta/factura no es válido (PDF, JPG o PNG, máximo 12 MB).';
+        }
+        $tieneAnt = $this->_docAdjuntoValido($docAnt) || $this->_archivoPublicoExiste($prevDocAnt);
+        $tieneTf = $this->_docAdjuntoValido($docTf) || $this->_archivoPublicoExiste($prevDocTf);
+        if (!$tieneAnt) {
+            return 'Debe adjuntar la inspección anterior (dictamen o lista).';
+        }
+        if (!$tieneTf) {
+            return 'Debe adjuntar la tarjeta de circulación o factura.';
+        }
+
+        return null;
     }
 
     private function _fotoVehiculoValida(?UploadedFileInterface $f): bool

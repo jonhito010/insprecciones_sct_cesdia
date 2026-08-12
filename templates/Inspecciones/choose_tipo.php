@@ -6,6 +6,8 @@
  * @var \App\View\AppView $this
  * @var array<string, array{label:string, descripcion:string, color:string, fondo:string, tipos:list<string>}> $tiposFormulario
  */
+use App\Validation\TipoVehiculoRequisitos;
+
 $this->assign('title', 'Nueva inspección — tipo');
 ?>
 
@@ -36,7 +38,15 @@ $this->assign('title', 'Nueva inspección — tipo');
          style="--tipo-color:<?= h($meta['color']) ?>;--tipo-fondo:<?= h($meta['fondo']) ?>;">
         <span class="cesdia-tipo-badge"><?= h($meta['label']) ?></span>
         <span class="cesdia-tipo-desc"><?= h($meta['descripcion']) ?></span>
-        <span class="cesdia-tipo-tipos">Tipos: <?= h(implode(', ', $meta['tipos'])) ?></span>
+        <span class="cesdia-tipo-tipos">Tipos: <?php
+          $partesTipos = [];
+          foreach ($meta['tipos'] as $codCard) {
+              $defCard = TipoVehiculoRequisitos::definicion((string)$codCard);
+              $nCard = $defCard !== null ? (int)$defCard['llantas'] : 0;
+              $partesTipos[] = $codCard . ($nCard > 0 ? (' (' . $nCard . ' llantas)') : '');
+          }
+          echo h(implode(', ', $partesTipos));
+        ?></span>
         <?php if (!empty($meta['folio_nota'])) : ?>
         <span class="cesdia-tipo-tipos" style="font-weight:700;color:var(--tipo-color)"><?= h($meta['folio_nota']) ?></span>
         <?php endif; ?>

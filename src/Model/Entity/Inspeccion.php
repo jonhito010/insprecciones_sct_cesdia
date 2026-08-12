@@ -16,7 +16,7 @@ class Inspeccion extends Entity
     {
         return !empty($this->inspeccion_iluminacion)
             && !empty($this->inspeccion_llantas)
-            && !empty($this->inspeccion_frenos);
+            && !empty($this->inspeccion_freno);
     }
 
     public function getDuracionMinutos(): ?int

@@ -9,12 +9,18 @@
  * @var string $tipoFormulario
  * @var string $paso
  */
+use App\Validation\TipoVehiculoRequisitos;
+
 $cab = $inspeccion->inspeccion_cabina ?? null;
 $aire = $inspeccion->inspeccion_sistema_aire ?? null;
 $ilum = $inspeccion->inspeccion_iluminacion ?? null;
 $freno = $inspeccion->inspeccion_freno ?? null;
 $esAutobus = ($tipoFormulario ?? '') === 'F21_AUTOBUS';
 $esCabinaConAire = in_array($tipoFormulario ?? '', ['F17_TRACTO', 'F18_CAMION', 'F21_AUTOBUS'], true);
+$tipoVehCab = strtoupper(trim((string)($inspeccion->vehiculo?->tipo_vehiculo ?? '')));
+// C2L / C2L6: sin frenos de aire → manómetro y protección del camión = N/A.
+$aireNoAplica = TipoVehiculoRequisitos::esCamionLigero($tipoVehCab);
+$defAireCabina = $aireNoAplica ? 'N/A' : 'CUMPLE';
 
 $secDireccion = [
     'volante'               => 'Volante',
@@ -43,7 +49,8 @@ $secVisibilidad = [
     'etiqueta_fabricante'  => 'Etiqueta del fabricante',
 ];
 ?>
-<div class="cesdia-card" style="margin-bottom:1.2rem;">
+<div class="cesdia-card" style="margin-bottom:1.2rem;" id="cesdia-cabina-root"
+     data-tipos-ligero="<?= h(implode(',', TipoVehiculoRequisitos::tiposCamionLigero())) ?>">
   <div class="card-header">
     <span class="card-header-title">
       <svg viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
@@ -95,8 +102,9 @@ $secVisibilidad = [
     </div>
 
     <?php if ($esCabinaConAire) : ?>
-    <div class="cesdia-section" style="margin-top:1rem;">
-      <div class="sec-head"><span class="sec-head-title"><?= ($tipoFormulario ?? '') === 'F18_CAMION' ? 'Manómetro de aire' : ($esAutobus ? 'Cabina' : 'Manómetro y protección del camión') ?></span></div>
+    <div class="cesdia-section" style="margin-top:1rem;<?= $aireNoAplica ? 'display:none;' : '' ?>" id="cesdia-cabina-aire-sec"
+         data-ocultar-ligero="<?= ($tipoFormulario ?? '') === 'F18_CAMION' ? '1' : '0' ?>">
+      <div class="sec-head"><span class="sec-head-title"><?= ($tipoFormulario ?? '') === 'F18_CAMION' ? 'Manómetro, protección y freno de emergencia' : ($esAutobus ? 'Cabina' : 'Manómetro, protección y freno de emergencia') ?></span></div>
       <div class="sec-body">
         <div class="cesdia-grid-3">
           <div class="cesdia-form-group">
@@ -104,8 +112,8 @@ $secVisibilidad = [
               'label'   => ['text' => 'MANÓMETRO DE AIRE', 'class' => 'cesdia-label'],
               'options' => $cumpleOpts,
               'empty'   => '--',
-              'class'   => 'cesdia-select' . $df,
-              'value'   => $aire ? ($aire->manometro ?? 'CUMPLE') : 'CUMPLE',
+              'class'   => 'cesdia-select cesdia-cabina-aire-na' . $df,
+              'value'   => ($aire && ($aire->manometro ?? '') !== '') ? $aire->manometro : $defAireCabina,
             ]) ?>
           </div>
           <?php if ($esAutobus) : ?>
@@ -152,8 +160,17 @@ $secVisibilidad = [
               'label'   => ['text' => 'PROTECCIÓN DEL CAMIÓN', 'class' => 'cesdia-label'],
               'options' => $cumpleOpts,
               'empty'   => '--',
+              'class'   => 'cesdia-select cesdia-cabina-aire-na' . $df,
+              'value'   => ($aire && ($aire->proteccion_camion ?? '') !== '') ? $aire->proteccion_camion : $defAireCabina,
+            ]) ?>
+          </div>
+          <div class="cesdia-form-group">
+            <?= $this->Form->control('inspeccion_freno.freno_emergencia', [
+              'label'   => ['text' => 'FRENO DE EMERGENCIA', 'class' => 'cesdia-label'],
+              'options' => $cumpleOpts,
+              'empty'   => '--',
               'class'   => 'cesdia-select' . $df,
-              'value'   => $aire ? ($aire->proteccion_camion ?? 'CUMPLE') : 'CUMPLE',
+              'value'   => $freno ? ($freno->freno_emergencia ?? 'CUMPLE') : 'CUMPLE',
             ]) ?>
           </div>
           <?php endif; ?>
@@ -164,3 +181,34 @@ $secVisibilidad = [
 
   </div>
 </div>
+<?php if (($tipoFormulario ?? '') === 'F18_CAMION') : ?>
+<script>
+(function () {
+  function syncCabinaAireF18() {
+    var root = document.getElementById('cesdia-cabina-root');
+    var sec = document.getElementById('cesdia-cabina-aire-sec');
+    var tipo = document.getElementById('cesdia-tipo-vehiculo');
+    if (!root) return;
+    var t = tipo ? String(tipo.value || '').trim().toUpperCase() : '';
+    var ligeros = String(root.getAttribute('data-tipos-ligero') || 'C2L,C2L6').split(',').filter(Boolean);
+    var ocultar = ligeros.indexOf(t) !== -1;
+    var def = ocultar ? 'N/A' : 'CUMPLE';
+    if (sec && sec.getAttribute('data-ocultar-ligero') === '1') {
+      sec.style.display = ocultar ? 'none' : '';
+    }
+    root.querySelectorAll('.cesdia-cabina-aire-na').forEach(function (sel) {
+      // Ligero: forzar N/A (aunque el módulo esté oculto, se envía al guardar).
+      // Pesado: N/A/vacío/CUMPLE → CUMPLE (respetar NO CUMPLE).
+      if (ocultar || sel.value === '' || sel.value === 'N/A' || sel.value === 'CUMPLE') {
+        sel.value = def;
+      }
+    });
+  }
+  document.addEventListener('DOMContentLoaded', function () {
+    var tipo = document.getElementById('cesdia-tipo-vehiculo');
+    if (tipo) tipo.addEventListener('change', syncCabinaAireF18);
+    syncCabinaAireF18();
+  });
+})();
+</script>
+<?php endif; ?>

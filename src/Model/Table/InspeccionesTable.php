@@ -46,9 +46,12 @@ class InspeccionesTable extends Table
             'foreignKey' => 'inspeccion_id',
             'dependent'  => true,
         ]);
+        // propertyName explícito: el Inflector EN singulariza mal "chasis"→"chasi"
+        // y "frenos"→"freno"; los forms/PDF usan inspeccion_chasis / inspeccion_freno.
         $this->hasOne('InspeccionChasis', [
             'foreignKey' => 'inspeccion_id',
             'dependent'  => true,
+            'propertyName' => 'inspeccion_chasis',
         ]);
         $this->hasOne('InspeccionSistemaAire', [
             'foreignKey' => 'inspeccion_id',
@@ -57,6 +60,7 @@ class InspeccionesTable extends Table
         $this->hasOne('InspeccionFrenos', [
             'foreignKey' => 'inspeccion_id',
             'dependent'  => true,
+            'propertyName' => 'inspeccion_freno',
         ]);
         $this->hasOne('InspeccionAcoplamiento', [
             'foreignKey' => 'inspeccion_id',
@@ -65,6 +69,7 @@ class InspeccionesTable extends Table
         $this->hasOne('InspeccionCarroceria', [
             'foreignKey' => 'inspeccion_id',
             'dependent'  => true,
+            'propertyName' => 'inspeccion_carroceria',
         ]);
         $this->hasOne('InspeccionCabina', [
             'foreignKey' => 'inspeccion_id',
@@ -96,6 +101,12 @@ class InspeccionesTable extends Table
     {
         if (isset($data['folio_dictamen']) && is_string($data['folio_dictamen'])) {
             $data['folio_dictamen'] = strtoupper(trim($data['folio_dictamen']));
+        }
+
+        foreach (['volante_cm', 'holgura_cm'] as $cmCampo) {
+            if ($data->offsetExists($cmCampo) && $data[$cmCampo] !== null && $data[$cmCampo] !== '') {
+                $data[$cmCampo] = InspeccionMexico::fmtCm($data[$cmCampo]);
+            }
         }
 
         // P1.1: sincronizar resultado legacy desde dictamen + estatus (no se elimina la columna).
@@ -202,10 +213,7 @@ class InspeccionesTable extends Table
             ->notEmptyString('hora_fin', 'Indique la hora de fin.')
             ->inList('vehiculo_presentado', ['CARGADO', 'VACIO'], 'Seleccione si el vehículo se presentó cargado o vacío.')
             ->allowEmptyString('tipo_camara_frenado')
-            ->inList('tipo_camara_frenado', [
-                'CAMARA DE FRENO TIPO ABRAZADERA',
-                'CAMARA DE FRENO TIPO PERNO',
-            ], 'Tipo de cámara no válido.', function ($context) {
+            ->inList('tipo_camara_frenado', array_keys(InspeccionMexico::TIPOS_CAMARA_FRENADO), 'Tipo de cámara no válido.', function ($context) {
                 return ($context['data']['tipo_camara_frenado'] ?? '') !== '';
             })
             ->allowEmptyString('camara_abrazadera_mm')
@@ -219,6 +227,18 @@ class InspeccionesTable extends Table
                     return $n >= 0 && $n <= 500;
                 },
                 'message' => 'Valor de cámara (mm) debe estar entre 0 y 500.',
+            ])
+            ->allowEmptyString('camara_abrazadera_trasera_mm')
+            ->add('camara_abrazadera_trasera_mm', 'rangoMmTrasera', [
+                'rule' => function ($value) {
+                    if ($value === null || $value === '') {
+                        return true;
+                    }
+                    $n = (float)$value;
+
+                    return $n >= 0 && $n <= 500;
+                },
+                'message' => 'Valor de abrazadera trasera (mm) debe estar entre 0 y 500.',
             ])
             ->allowEmptyString('observaciones')
             ->maxLength('observaciones', 8000, 'Observaciones demasiado largas (máx. 8000 caracteres).')
@@ -242,17 +262,30 @@ class InspeccionesTable extends Table
         }
 
         if ($this->getSchema()->hasColumn('volante_cm')) {
-            foreach (['volante_cm', 'holgura_cm'] as $cmCampo) {
-                $validator
-                    ->allowEmptyString($cmCampo)
-                    ->decimal($cmCampo, null, 'Indique un número válido (cm).')
-                    ->greaterThanOrEqual($cmCampo, 0, 'No puede ser negativo.')
-                    ->lessThanOrEqual($cmCampo, 999.99, 'Valor demasiado grande.');
-            }
+            $validator
+                ->allowEmptyString('volante_cm')
+                ->add('volante_cm', 'volanteLista', [
+                    'rule' => function ($value) {
+                        return InspeccionMexico::esVolanteCmPermitido($value);
+                    },
+                    'message' => 'Seleccione un diámetro de volante de la lista.',
+                ]);
+            $validator
+                ->allowEmptyString('holgura_cm')
+                ->add('holgura_cm', 'holguraRango', [
+                    'rule' => function ($value) {
+                        return InspeccionMexico::esHolguraCmPermitida($value);
+                    },
+                    'message' => sprintf(
+                        'Holgura (cm) debe estar entre %s y %s.',
+                        (int)InspeccionMexico::HOLGURA_CM_MIN,
+                        (int)InspeccionMexico::HOLGURA_CM_MAX
+                    ),
+                ]);
+            // Volante (lista) y holgura (abierta 7–9) se validan por separado.
         }
 
-        $varillasMm = ['varilla_ll1_2_mm', 'varilla_ll3_4_mm', 'varilla_ll5_6_mm', 'varilla_ll7_8_mm'];
-        foreach ($varillasMm as $campo) {
+        foreach (InspeccionMexico::CAMPOS_VARILLA_MM as $campo) {
             $validator
                 ->allowEmptyString($campo)
                 ->add($campo, 'rangoVarilla', [
@@ -262,13 +295,17 @@ class InspeccionesTable extends Table
                         }
                         $n = (float)$value;
 
-                        return $n >= 0 && $n <= 200;
+                        return $n >= InspeccionMexico::VARILLA_MM_MIN
+                            && $n <= InspeccionMexico::VARILLA_MM_MAX;
                     },
-                    'message' => 'Valor de varilla (mm) debe estar entre 0 y 200.',
+                    'message' => sprintf(
+                        'Valor de varilla (mm) debe estar entre %s y %s.',
+                        (int)InspeccionMexico::VARILLA_MM_MIN,
+                        (int)InspeccionMexico::VARILLA_MM_MAX
+                    ),
                 ]);
         }
-        $varillasRes = ['varilla_ll1_2_resultado', 'varilla_ll3_4_resultado', 'varilla_ll5_6_resultado', 'varilla_ll7_8_resultado'];
-        foreach ($varillasRes as $campo) {
+        foreach (InspeccionMexico::CAMPOS_VARILLA_RESULTADO as $campo) {
             $validator
                 ->allowEmptyString($campo)
                 ->inList($campo, InspeccionMexico::OPCIONES_CUMPLE, 'Seleccione Cumple / No cumple / N/A.', function ($context) use ($campo) {
@@ -591,7 +628,52 @@ class InspeccionesTable extends Table
         ]);
 
         if (!empty($filtros['resultado'])) {
-            $query->where(['Inspecciones.resultado' => $filtros['resultado']]);
+            $res = strtoupper(trim((string)$filtros['resultado']));
+            // UI usa dictamen; compatibilidad con resultado legacy.
+            if ($res === 'APROBADO' || $res === 'CUMPLE') {
+                $query->where([
+                    'OR' => [
+                        'Inspecciones.dictamen' => 'CUMPLE',
+                        'Inspecciones.resultado' => 'APROBADO',
+                    ],
+                ]);
+            } elseif ($res === 'RECHAZADO' || $res === 'NO CUMPLE') {
+                $query->where([
+                    'OR' => [
+                        'Inspecciones.dictamen' => 'NO CUMPLE',
+                        'Inspecciones.resultado' => 'RECHAZADO',
+                    ],
+                ]);
+            } elseif ($res === 'CANCELADO' || $res === 'CANCELADA') {
+                $query->where([
+                    'OR' => [
+                        'Inspecciones.estatus_registro' => 'CANCELADA',
+                        'Inspecciones.resultado' => 'CANCELADO',
+                    ],
+                ]);
+            } else {
+                $query->where(['Inspecciones.resultado' => $filtros['resultado']]);
+            }
+        }
+        if (!empty($filtros['tipo_formulario'])) {
+            $query->where(['Inspecciones.tipo_formulario' => $filtros['tipo_formulario']]);
+        }
+        if (!empty($filtros['q'])) {
+            $q = trim((string)$filtros['q']);
+            $like = '%' . $q . '%';
+            $likeUpper = '%' . strtoupper($q) . '%';
+            $query->where([
+                'OR' => [
+                    'Inspecciones.folio_dictamen LIKE' => $likeUpper,
+                    'Vehiculos.placas LIKE' => $like,
+                    'Vehiculos.niv LIKE' => $like,
+                ],
+            ]);
+        }
+        if (!empty($filtros['folio'])) {
+            $query->where([
+                'Inspecciones.folio_dictamen LIKE' => '%' . strtoupper(trim((string)$filtros['folio'])) . '%',
+            ]);
         }
         if (!empty($filtros['fecha_desde'])) {
             $query->where(['Inspecciones.fecha_inspeccion >=' => $filtros['fecha_desde']]);
@@ -617,8 +699,10 @@ class InspeccionesTable extends Table
             $query->where(['Inspecciones.tecnico_id' => $tecnicoId]);
         }
 
-        // INC-3: ocultar canceladas por defecto (filtro visible queda para fase Historial).
-        if (empty($filtros['mostrar_canceladas']) && $this->getSchema()->hasColumn('estatus_registro')) {
+        // INC-3: ocultar canceladas por defecto (salvo filtro explícito o dictamen=cancelada).
+        $buscaCanceladas = !empty($filtros['mostrar_canceladas'])
+            || in_array(strtoupper(trim((string)($filtros['resultado'] ?? ''))), ['CANCELADO', 'CANCELADA'], true);
+        if (!$buscaCanceladas && $this->getSchema()->hasColumn('estatus_registro')) {
             $query->where(['Inspecciones.estatus_registro !=' => 'CANCELADA']);
         }
 

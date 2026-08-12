@@ -13,5 +13,6 @@ class UnidadInspeccion extends Entity
         'numero_acreditacion' => true,
         'aprobacion' => true,
         'activo' => true,
+        'pathSello' => true,
     ];
 }

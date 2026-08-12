@@ -63,6 +63,9 @@ class PruebasNom068Command extends Command
     /** @var list<array{id:int, formato:string}> */
     private array $inspeccionesPdf = [];
 
+    /** Si true (--keep/--pdf), restaurar ACTIVA al final de T6 para que aparezcan en el listado. */
+    private bool $keepDatos = false;
+
     public function buildOptionParser(ConsoleOptionParser $parser): ConsoleOptionParser
     {
         $parser->setDescription(
@@ -102,6 +105,7 @@ class PruebasNom068Command extends Command
         }
 
         $keep = (bool)$args->getOption('keep') || (bool)$args->getOption('pdf');
+        $this->keepDatos = $keep;
         $conPdf = (bool)$args->getOption('pdf');
         $solo = $args->getOption('formato');
         $soloKey = $solo !== null && $solo !== '' ? strtoupper(trim((string)$solo)) : null;
@@ -224,14 +228,65 @@ class PruebasNom068Command extends Command
         $set = $this->setCampos($tipoForm);
 
         $extra = [
+            'tipo_camara_frenado' => 'CAMARA DE FRENO TIPO ABRAZADERA',
+            'camara_abrazadera_mm' => 30,
+            'varilla_ll1_2_mm' => 35,
+            'varilla_ll1_2_resultado' => 'CUMPLE',
+            'varilla_ll3_4_mm' => 35,
+            'varilla_ll3_4_resultado' => 'CUMPLE',
+            'varilla_ll5_6_mm' => 34,
+            'varilla_ll5_6_resultado' => 'CUMPLE',
+            'varilla_ll7_8_mm' => 36,
+            'varilla_ll7_8_resultado' => 'CUMPLE',
+            'varilla_ll9_10_mm' => 35,
+            'varilla_ll9_10_resultado' => 'CUMPLE',
+            'varilla_ll11_12_mm' => 34,
+            'varilla_ll11_12_resultado' => 'CUMPLE',
+            'inspeccion_iluminacion' => [
+                'demarcadoras_laterales' => 'CUMPLE',
+                'luces_freno' => 'CUMPLE',
+                'luces_peligro' => 'CUMPLE',
+                'luces_reversa' => 'CUMPLE',
+                'galibo_trasero' => 'CUMPLE',
+                'luz_placa_trasera' => 'CUMPLE',
+            ],
+            'inspeccion_suspension' => array_fill_keys([
+                'muelles', 'barra_torsion', 'amortiguadores', 'suspension_aire',
+                'viga_oscilante', 'salpicaderas', 'amortiguadores_trasera_2',
+            ], 'CUMPLE'),
+            'inspeccion_freno' => [
+                'frenos_abs' => 'CUMPLE',
+                'balatas' => 'CUMPLE',
+                'mecanismo_camara' => 'CUMPLE',
+                'componentes_mecanicos' => 'CUMPLE',
+                'frenos_tambor' => 'CUMPLE',
+                'frenos_electricos' => 'N/A',
+                'frenos_electricos_ret' => 'N/A',
+            ],
+            'inspeccion_sistema_aire' => [
+                'deposito_aire' => 'CUMPLE',
+                'valvulas_sistema' => 'CUMPLE',
+                'valvulas_control' => 'CUMPLE',
+                'componentes_conexiones' => 'CUMPLE',
+            ],
             'inspeccion_carroceria' => [
                 'tipo_carroceria' => 'Caja seca',
+                'cuerpo_tanque' => 'N/A',
+                'tanque_valvulas' => 'N/A',
                 'grano_piso' => 'CUMPLE',
                 'grava_piso' => 'NO CUMPLE',
                 'otro_piso' => 'N/A',
                 'grano_lados_soporte' => 'CUMPLE',
+                'grano_carroceria_remaches' => 'CUMPLE',
+                'plataforma_plana' => 'N/A',
+                'plataforma_laterales_estacas' => 'N/A',
                 'grava_laterales_soporte' => 'NO CUMPLE',
+                'grava_puertas_tolva' => 'NO CUMPLE',
+                'sujecion_puntos_equipo' => 'CUMPLE',
+                'sujecion_condicion_carga' => 'CUMPLE',
                 'otro_laterales' => 'N/A',
+                'otro_puertas' => 'N/A',
+                'otro_sujetadores_mangueras' => 'N/A',
             ],
             'inspeccion_chasis' => [
                 'vigas_chasis' => 'CUMPLE',
@@ -338,10 +393,10 @@ class PruebasNom068Command extends Command
         $set = $this->setCampos($tipoForm);
 
         try {
-            $insp = $this->crearInspeccion($tipoForm, 'AB', [
+            $insp = $this->crearInspeccion($tipoForm, 'B3', [
                 'odometro' => 125000,
-                'volante_cm' => '42.50',
-                'holgura_cm' => '3.25',
+                'volante_cm' => '40.6',
+                'holgura_cm' => '8.0',
                 'inspeccion_sistema_aire' => [
                     'deposito_aire' => 'CUMPLE',
                     'valvula_control_remolque' => 'CUMPLE',
@@ -360,13 +415,39 @@ class PruebasNom068Command extends Command
             $re = $this->releer($insp->id, $tipoForm);
 
             $n++;
-            $e7 = TipoVehiculoRequisitos::etiquetaLlanta('AB', 4, 'EXTERNA');
-            $e8 = TipoVehiculoRequisitos::etiquetaLlanta('AB', 4, 'INTERNA');
-            if ($e7 !== 'LLANTA 7' || $e8 !== 'LLANTA 8') {
+            $slotsB2 = TipoVehiculoRequisitos::slotsParaTipo('B2');
+            $slotsB3 = TipoVehiculoRequisitos::slotsParaTipo('B3');
+            if (count($slotsB2) !== 6 || count($slotsB3) !== 10) {
                 $fails[] = sprintf(
-                    '[F-21] [FORMULARIO] etiquetas finales esperaban LLANTA 7/8, obtuvo "%s" / "%s"',
+                    '[F-21] [LLANTAS] B2=6 / B3=10 esperados; obtuvo %d / %d',
+                    count($slotsB2),
+                    count($slotsB3)
+                );
+            }
+
+            $n++;
+            $e1 = TipoVehiculoRequisitos::etiquetaLlanta('B3', 1, 'EXTERNA');
+            $e3 = TipoVehiculoRequisitos::etiquetaLlanta('B3', 3, 'EXTERNA');
+            $e7 = TipoVehiculoRequisitos::etiquetaLlanta('B3', 7, 'EXTERNA');
+            $lado1 = TipoVehiculoRequisitos::etiquetaPosicionVisible('B3', 1, 'EXTERNA');
+            $lado3 = TipoVehiculoRequisitos::etiquetaPosicionVisible('B3', 3, 'EXTERNA');
+            $lado7 = TipoVehiculoRequisitos::etiquetaPosicionVisible('B3', 7, 'EXTERNA');
+            if (
+                $e1 !== 'LLANTA 1'
+                || $e3 !== 'LLANTA 3'
+                || $e7 !== 'LLANTA 7'
+                || $lado1 !== 'izquierda'
+                || $lado3 !== 'izquierda externa'
+                || $lado7 !== 'izquierda externa'
+            ) {
+                $fails[] = sprintf(
+                    '[F-21] [FORMULARIO] etiquetas B3 incorrectas: "%s"/"%s"/"%s" lados "%s"/"%s"/"%s"',
+                    $e1,
+                    $e3,
                     $e7,
-                    $e8
+                    $lado1,
+                    $lado3,
+                    $lado7
                 );
             }
 
@@ -381,17 +462,17 @@ class PruebasNom068Command extends Command
             }
 
             $n++;
-            if ((string)$re->volante_cm !== '42.50' && (float)$re->volante_cm !== 42.5) {
+            if ((string)$re->volante_cm !== '40.6' && (float)$re->volante_cm !== 40.6) {
                 $fails[] = '[F-21] [PERSISTENCIA] volante_cm no persistió decimal';
             }
             $n++;
-            if ((string)$re->holgura_cm !== '3.25' && (float)$re->holgura_cm !== 3.25) {
+            if ((string)$re->holgura_cm !== '8.0' && (float)$re->holgura_cm !== 8.0) {
                 $fails[] = '[F-21] [PERSISTENCIA] holgura_cm no persistió decimal';
             }
 
             $n++;
-            if (!in_array('valvula_control_remolque', $set['aire'], true)) {
-                $fails[] = '[F-21] [FORMULARIO] valvula_control_remolque ausente en set AB';
+            if (in_array('valvula_control_remolque', $set['aire'], true)) {
+                $fails[] = '[F-21] [FORMULARIO] valvula_control_remolque no debe aparecer en autobús';
             }
 
             $n++;
@@ -406,13 +487,27 @@ class PruebasNom068Command extends Command
                 $fails[] = '[F-21] [PERSISTENCIA] bastidor_largeros no persistió';
             }
 
+            // Variante B2 (2 direccional + 4 motriz)
+            $inspB2 = $this->crearInspeccion($tipoForm, 'B2', [
+                'odometro' => 98000,
+            ]);
+            $reB2 = $this->releer($inspB2->id, $tipoForm);
+            $normB2 = TipoVehiculoRequisitos::filasLlantasNormalizadasParaTipo(
+                'B2',
+                $reB2->inspeccion_llantas ?? []
+            );
+            $n++;
+            if ($normB2 === null || count($normB2) !== 6) {
+                $fails[] = '[F-21] [LLANTAS] B2 debió normalizar a 6 filas';
+            }
+
             $this->inspeccionesPdf[] = ['id' => (int)$insp->id, 'formato' => 'F21'];
-            $this->correrT6EnInspeccion($re, $tipoForm, 'AB', $fails, $n);
+            $this->correrT6EnInspeccion($re, $tipoForm, 'B3', $fails, $n);
         } catch (Throwable $e) {
             $fails[] = '[F-21] [ERROR] ' . $this->acortarErrorSql($e->getMessage());
         }
 
-        $this->registrar('T2', 'F-21 Autobús AB', $fails, $n);
+        $this->registrar('T2', 'F-21 Autobús B3/B2', $fails, $n);
     }
 
     private function correrT3(): void
@@ -509,48 +604,93 @@ class PruebasNom068Command extends Command
         $fails = [];
         $n = 0;
         $tipoForm = 'F18_CAMION';
-        $set = $this->setCampos($tipoForm);
+        $set = $this->setCampos($tipoForm, 'C3');
 
-        $hidCampos = [
-            'hid_luz_indicadora', 'hid_cables_acoplamiento', 'estac_balata', 'hid_libera_hidraulico',
-            'freno_estacionamiento', 'hid_recorrido', 'hid_indicador_advertencia', 'hid_deposito_liquido',
-            'hid_lineas_mangueras', 'hid_pedal', 'hid_valvulas_unidirec', 'hid_abrazaderas', 'hid_booster',
-            'hid_reserva_vacio', 'hid_bomba_vacio', 'hid_liquido_condicion', 'hid_cilindros', 'hid_tambores',
-            'hid_disco', 'hid_calipers', 'hid_pastas_freno',
+        $frenoData = [
+            'balatas' => 'CUMPLE',
+            'frenos_abs' => 'CUMPLE',
+            'mecanismo_camara' => 'CUMPLE',
+            'componentes_mecanicos' => 'CUMPLE',
+            'frenos_tambor' => 'CUMPLE',
         ];
-        $frenoData = ['balatas' => 'CUMPLE', 'frenos_abs' => 'CUMPLE'];
-        foreach ($hidCampos as $i => $c) {
-            $frenoData[$c] = ($i % 2 === 0) ? 'CUMPLE' : 'N/A';
-        }
 
         try {
             $insp = $this->crearInspeccion($tipoForm, 'C3', [
                 'odometro' => 88000,
-                'volante_cm' => '40.00',
-                'holgura_cm' => '2.50',
+                'volante_cm' => '40.6',
+                'holgura_cm' => '8.0',
+                'tipo_camara_frenado' => 'CAMARA DE FRENO TIPO ABRAZADERA',
+                'camara_abrazadera_mm' => 30,
+                'varilla_ll1_2_mm' => 35,
+                'varilla_ll1_2_resultado' => 'CUMPLE',
+                'varilla_ll3_4_mm' => 35,
+                'varilla_ll3_4_resultado' => 'CUMPLE',
+                'varilla_ll5_6_mm' => 34,
+                'varilla_ll5_6_resultado' => 'CUMPLE',
+                'varilla_ll7_8_mm' => 36,
+                'varilla_ll7_8_resultado' => 'CUMPLE',
+                'varilla_ll9_10_mm' => 35,
+                'varilla_ll9_10_resultado' => 'CUMPLE',
                 'inspeccion_chasis' => [
                     'vigas_chasis' => 'CUMPLE',
+                    'sujetadores_chasis' => 'CUMPLE',
+                    'travesanos' => 'CUMPLE',
+                    'mangueras_tuberia' => 'CUMPLE',
+                    'combustible_tapon' => 'CUMPLE',
+                    'combustible_tanque' => 'CUMPLE',
+                    'combustible_cubierta_jaula' => 'CUMPLE',
+                    'combustible_lineas_bomba' => 'CUMPLE',
                     'gaslp_soporte_tanque' => 'CUMPLE',
                     'gaslp_etiqueta_cilindro' => 'NO CUMPLE',
                     'gaslp_condicion' => 'CUMPLE',
                     'gaslp_cinchos' => 'N/A',
+                    'escape_multiple' => 'CUMPLE',
+                    'escape_mofle' => 'CUMPLE',
+                    'escape_tubos' => 'CUMPLE',
+                    'escape_montaje' => 'CUMPLE',
+                    'bateria' => 'CUMPLE',
                 ],
                 'inspeccion_freno' => $frenoData,
+                'inspeccion_suspension' => array_fill_keys([
+                    'pernos_tipo_u', 'brazo_control', 'amortiguadores_delantera', 'amortiguadores',
+                    'muelles', 'barra_torsion', 'amortiguadores_trasera_2', 'suspension_aire',
+                    'valvula_proteccion_65psi', 'salpicaderas',
+                ], 'CUMPLE'),
                 'inspeccion_sistema_aire' => [
+                    'compresor_aire' => 'CUMPLE',
                     'deposito_aire' => 'CUMPLE',
                     'gobernador' => 'CUMPLE',
+                    'dispositivo_baja_presion' => 'CUMPLE',
+                    'fugas_sistema' => 'CUMPLE',
+                    'valvulas_sistema' => 'CUMPLE',
+                    'valvula_pedal' => 'CUMPLE',
+                    'valvula_liberacion_rapida' => 'CUMPLE',
+                    'valvulas_relevo_linea_azul' => 'CUMPLE',
+                    'valvulas_control' => 'CUMPLE',
+                    'componentes_conexiones' => 'CUMPLE',
                     'caida_presion_cumple' => 'CUMPLE',
                     'caida_presion_psi' => 1.5,
-                    'tiempo_carga_min' => 2.0,
+                    'tiempo_carga_min' => 1.5,
                     'tiempo_carga_cumple' => 'CUMPLE',
                     'manometro' => 'CUMPLE',
                     'proteccion_camion' => 'CUMPLE',
                 ],
-                'inspeccion_iluminacion' => [
-                    'luces_peligro' => 'CUMPLE',
-                    'luces_intermitentes' => 'NO CUMPLE',
-                    'luces_freno' => 'CUMPLE',
-                ],
+                'inspeccion_iluminacion' => array_fill_keys([
+                    'faros_principales', 'faros_altura', 'faros_montaje', 'galibo_delantero',
+                    'luz_alta_baja', 'luz_diurna', 'luces_traseras', 'direccionales',
+                    'luces_peligro', 'luz_niebla', 'parabrisas', 'parabrisas_tipo',
+                    'ventanas_laterales', 'ventana_posterior', 'limpiaparabrisas',
+                    'inyectores_agua', 'defensa_delantera', 'placa_identificacion',
+                    'luces_freno', 'luces_reversa', 'luz_placa_trasera',
+                ], 'CUMPLE') + ['luces_intermitentes' => 'NO CUMPLE'],
+                'inspeccion_cabina' => array_fill_keys([
+                    'volante', 'operacion_direccion', 'juego_volante', 'topes_direccion',
+                    'direccion_telescopica', 'columna_direccion', 'barra_acoplamiento',
+                    'terminales_direccion', 'brazo_pitman', 'junta_transversal', 'caja_direccion',
+                    'etiqueta_fabricante', 'visera_sol', 'interruptores', 'espejos',
+                    'sistema_desempanante', 'luz_tablero_palanca', 'proteccion_camion',
+                    'freno_emergencia',
+                ], 'CUMPLE'),
             ]);
             $re = $this->releer($insp->id, $tipoForm);
             $ch = $re->inspeccion_chasis;
@@ -565,10 +705,13 @@ class PruebasNom068Command extends Command
             }
 
             $n++;
-            foreach (['22', '26', '27/28', '29/30', '31', '32'] as $grupo) {
-                if (!isset($set['hidraulicos_grupos'][$grupo]) || $set['hidraulicos_grupos'][$grupo] === []) {
-                    $fails[] = "[F-18] [FORMULARIO] grupo hidráulico {$grupo} ausente en set";
-                }
+            if ($set['hidraulicos_grupos'] !== []) {
+                $fails[] = '[F-18] [FORMULARIO] C3 no debe incluir grupos hidráulicos en set';
+            }
+
+            $n++;
+            if ($set['frenos'] === [] || !in_array('frenos_tambor', $set['frenos'], true)) {
+                $fails[] = '[F-18] [FORMULARIO] C3 debe incluir frenos neumáticos en set';
             }
 
             $n++;
@@ -597,8 +740,21 @@ class PruebasNom068Command extends Command
             }
 
             $n++;
-            if ($fr === null || (string)($fr->hid_pedal ?? '') === '') {
-                $fails[] = '[F-18] [PERSISTENCIA] frenos hidráulicos no persistieron';
+            if ($fr === null || (string)($fr->frenos_tambor ?? '') === '') {
+                $fails[] = '[F-18] [PERSISTENCIA] frenos neumáticos no persistieron';
+            }
+
+            // C2L: set con hidráulicos y sin neumáticos.
+            $setC2l = $this->setCampos($tipoForm, 'C2L');
+            $n++;
+            foreach (['22', '26', '27/28', '29/30', '31', '32'] as $grupo) {
+                if (!isset($setC2l['hidraulicos_grupos'][$grupo]) || $setC2l['hidraulicos_grupos'][$grupo] === []) {
+                    $fails[] = "[F-18] [FORMULARIO] C2L grupo hidráulico {$grupo} ausente en set";
+                }
+            }
+            $n++;
+            if ($setC2l['frenos'] !== []) {
+                $fails[] = '[F-18] [FORMULARIO] C2L no debe incluir frenos neumáticos en set';
             }
 
             $this->inspeccionesPdf[] = ['id' => (int)$insp->id, 'formato' => 'F18'];
@@ -620,14 +776,35 @@ class PruebasNom068Command extends Command
         try {
             $insp = $this->crearInspeccion($tipoForm, 'T3', [
                 'odometro' => 210000,
-                'volante_cm' => '41.75',
-                'holgura_cm' => '1.10',
+                'volante_cm' => '45.7',
+                'holgura_cm' => '8.0',
+                'tipo_camara_frenado' => 'CAMARA DE FRENO TIPO ABRAZADERA',
+                'camara_abrazadera_mm' => 30,
+                'varilla_ll1_2_mm' => 35,
+                'varilla_ll1_2_resultado' => 'CUMPLE',
+                'varilla_ll3_4_mm' => 35,
+                'varilla_ll3_4_resultado' => 'CUMPLE',
+                'varilla_ll5_6_mm' => 34,
+                'varilla_ll5_6_resultado' => 'CUMPLE',
+                'varilla_ll7_8_mm' => 36,
+                'varilla_ll7_8_resultado' => 'CUMPLE',
+                'varilla_ll9_10_mm' => 35,
+                'varilla_ll9_10_resultado' => 'CUMPLE',
                 'inspeccion_sistema_aire' => [
+                    'compresor_aire' => 'CUMPLE',
                     'deposito_aire' => 'CUMPLE',
                     'gobernador' => 'CUMPLE',
+                    'dispositivo_baja_presion' => 'CUMPLE',
+                    'fugas_sistema' => 'CUMPLE',
+                    'valvulas_sistema' => 'CUMPLE',
+                    'valvula_pedal' => 'CUMPLE',
+                    'valvula_liberacion_rapida' => 'CUMPLE',
+                    'valvulas_relevo_linea_azul' => 'CUMPLE',
+                    'valvulas_control' => 'CUMPLE',
+                    'componentes_conexiones' => 'CUMPLE',
                     'caida_presion_cumple' => 'CUMPLE',
                     'caida_presion_psi' => 1.0,
-                    'tiempo_carga_min' => 2.5,
+                    'tiempo_carga_min' => 1.5,
                     'tiempo_carga_cumple' => 'CUMPLE',
                     'conexiones_aire_remolque' => 'CUMPLE',
                     'conexiones_elec_remolque' => 'NO CUMPLE',
@@ -644,9 +821,72 @@ class PruebasNom068Command extends Command
                 ],
                 'inspeccion_chasis' => [
                     'vigas_chasis' => 'CUMPLE',
+                    'sujetadores_chasis' => 'CUMPLE',
+                    'travesanos' => 'CUMPLE',
                     'mangueras_tuberia' => 'CUMPLE',
+                    'combustible_tapon' => 'CUMPLE',
+                    'combustible_tanque' => 'CUMPLE',
+                    'combustible_cubierta_jaula' => 'CUMPLE',
+                    'combustible_lineas_bomba' => 'CUMPLE',
+                    'escape_multiple' => 'CUMPLE',
+                    'escape_mofle' => 'CUMPLE',
+                    'escape_tubos' => 'CUMPLE',
+                    'escape_montaje' => 'CUMPLE',
+                    'bateria' => 'CUMPLE',
                 ],
+                'inspeccion_freno' => [
+                    'frenos_abs' => 'CUMPLE',
+                    'balatas' => 'CUMPLE',
+                    'mecanismo_camara' => 'CUMPLE',
+                    'componentes_mecanicos' => 'CUMPLE',
+                    'frenos_tambor' => 'CUMPLE',
+                    'frenos_electricos_ret' => 'N/A',
+                    'freno_emergencia' => 'CUMPLE',
+                ],
+                'inspeccion_suspension' => array_fill_keys([
+                    'pernos_tipo_u', 'brazo_control', 'amortiguadores_delantera', 'amortiguadores',
+                    'muelles', 'barra_torsion', 'amortiguadores_trasera_2', 'suspension_aire',
+                    'valvula_proteccion_65psi', 'viga_oscilante', 'salpicaderas',
+                ], 'CUMPLE'),
+                'inspeccion_iluminacion' => array_fill_keys([
+                    'faros_principales', 'faros_altura', 'faros_montaje', 'galibo_delantero',
+                    'luz_alta_baja', 'luz_diurna', 'luces_traseras', 'direccionales',
+                    'luces_peligro', 'luz_niebla', 'parabrisas', 'parabrisas_tipo',
+                    'ventanas_laterales', 'ventana_posterior', 'limpiaparabrisas',
+                    'inyectores_agua', 'defensa_delantera', 'placa_identificacion',
+                    'luces_freno', 'luces_reversa', 'luz_placa_trasera',
+                    'espejos_retrovisores',
+                ], 'CUMPLE') + ['luces_intermitentes' => 'NO CUMPLE'],
+                'inspeccion_cabina' => array_fill_keys([
+                    'volante', 'operacion_direccion', 'juego_volante', 'topes_direccion',
+                    'direccion_telescopica', 'columna_direccion', 'barra_acoplamiento',
+                    'terminales_direccion', 'brazo_pitman', 'junta_transversal', 'caja_direccion',
+                    'brazos_torque', 'etiqueta_fabricante', 'visera_sol', 'interruptores',
+                    'sistema_desempanante', 'luz_tablero_palanca',
+                ], 'CUMPLE'),
             ]);
+            // Rines (campos en inspeccion_llantas, no en tabla rines).
+            $llPatch = [];
+            foreach ($insp->inspeccion_llantas ?? [] as $llRow) {
+                $llPatch[] = [
+                    'id' => (int)$llRow->id,
+                    'numero_llanta' => (int)$llRow->numero_llanta,
+                    'posicion' => (string)$llRow->posicion,
+                    'rin_condicion' => 'CUMPLE',
+                    'rin_sujetadores' => 'CUMPLE',
+                    'rin_artilleria' => 'N/A',
+                ];
+            }
+            if ($llPatch !== []) {
+                $entLl = $this->inspecciones->get((int)$insp->id, contain: ['InspeccionLlantas']);
+                $entLl = $this->inspecciones->patchEntity($entLl, [
+                    'inspeccion_llantas' => $llPatch,
+                ], ['associated' => ['InspeccionLlantas']]);
+                if (!$this->inspecciones->save($entLl, ['associated' => ['InspeccionLlantas']])) {
+                    $fails[] = '[F-17] [PERSISTENCIA] rines en llantas no se guardaron: '
+                        . json_encode($entLl->getErrors());
+                }
+            }
             $re = $this->releer($insp->id, $tipoForm);
             $aire = $re->inspeccion_sistema_aire;
 
@@ -714,8 +954,33 @@ class PruebasNom068Command extends Command
             }
 
             $n++;
-            if ((float)$re->volante_cm !== 41.75 || (float)$re->holgura_cm !== 1.10) {
+            if ((float)$re->volante_cm !== 45.7 || (float)$re->holgura_cm !== 8.0) {
                 $fails[] = '[F-17] [PERSISTENCIA] volante_cm/holgura_cm no persistieron';
+            }
+
+            $n++;
+            $il = $re->inspeccion_iluminacion;
+            $cab = $re->inspeccion_cabina;
+            $fr = $re->inspeccion_freno;
+            $su = $re->inspeccion_suspension;
+            if (
+                $il === null
+                || (string)($il->faros_principales ?? '') !== 'CUMPLE'
+                || (string)($il->luces_intermitentes ?? '') !== 'NO CUMPLE'
+            ) {
+                $fails[] = '[F-17] [PERSISTENCIA] iluminación (faros/intermitentes) no persistió';
+            }
+            $n++;
+            if ($cab === null || (string)($cab->volante ?? '') !== 'CUMPLE' || (string)($cab->etiqueta_fabricante ?? '') !== 'CUMPLE') {
+                $fails[] = '[F-17] [PERSISTENCIA] cabina/dirección no persistió';
+            }
+            $n++;
+            if ($fr === null || (string)($fr->balatas ?? '') !== 'CUMPLE' || (string)($fr->frenos_abs ?? '') !== 'CUMPLE') {
+                $fails[] = '[F-17] [PERSISTENCIA] frenos neumáticos no persistieron';
+            }
+            $n++;
+            if ($su === null || (string)($su->pernos_tipo_u ?? '') !== 'CUMPLE' || (string)($su->muelles ?? '') !== 'CUMPLE') {
+                $fails[] = '[F-17] [PERSISTENCIA] suspensión no persistió';
             }
 
             $this->inspeccionesPdf[] = ['id' => (int)$insp->id, 'formato' => 'F17'];
@@ -872,6 +1137,18 @@ class PruebasNom068Command extends Command
             $n++;
             if ((string)$re->dictamen !== $dictamenPre) {
                 $fails[] = "[{$marcaForm}] [COMUNES] cancelar alteró dictamen ({$re->dictamen} vs {$dictamenPre})";
+            }
+        }
+
+        // Con --keep/--pdf: dejar ACTIVA + CUMPLE para que salga en el historial (oculta CANCELADA).
+        if ($this->keepDatos) {
+            $entity = $this->inspecciones->get($id);
+            $entity = $this->inspecciones->patchEntity($entity, [
+                'estatus_registro' => 'ACTIVA',
+                'dictamen' => 'CUMPLE',
+            ]);
+            if (!$this->inspecciones->save($entity)) {
+                $fails[] = "[{$marcaForm}] [COMUNES] no se pudo reactivar inspección tras T6 (--keep)";
             }
         }
 
@@ -1085,9 +1362,16 @@ class PruebasNom068Command extends Command
         foreach ($this->inspeccionesPdf as $row) {
             $id = $row['id'];
             $fmt = strtolower($row['formato']);
+            $templateLista = match (strtoupper($fmt)) {
+                'F18' => 'pdf_lista_f18',
+                'F19' => 'pdf_lista_f19',
+                'F20' => 'pdf_lista_f20',
+                'F21' => 'pdf_lista_f21',
+                default => 'pdf_lista',
+            };
             foreach (
                 [
-                    'lista' => 'pdf_lista',
+                    'lista' => $templateLista,
                     'f04' => 'pdf',
                 ] as $sufijo => $template
             ) {
@@ -1105,6 +1389,65 @@ class PruebasNom068Command extends Command
                         );
                     }
                     file_put_contents($path, $bytes);
+
+                    // Validación estructural completa de la lista (formato oficial).
+                    if ($sufijo === 'lista' && strtoupper($fmt) === 'F17') {
+                        $n++;
+                        $html = $this->renderHtmlInspeccion($id, 'pdf_lista');
+                        foreach (\App\Validation\F17ListaPdfValidador::fallas(
+                            \App\Validation\F17ListaPdfValidador::validar($html)
+                        ) as $msg) {
+                            $fails[] = $msg;
+                        }
+                        file_put_contents($dir . 'f17_lista.html', $html);
+                    }
+                    if ($sufijo === 'lista' && strtoupper($fmt) === 'F18') {
+                        $n++;
+                        $html = $this->renderHtmlInspeccion($id, 'pdf_lista_f18');
+                        foreach (\App\Validation\F18ListaPdfValidador::fallas(
+                            \App\Validation\F18ListaPdfValidador::validar($html)
+                        ) as $msg) {
+                            $fails[] = $msg;
+                        }
+                        file_put_contents($dir . 'f18_lista.html', $html);
+                    }
+                    if ($sufijo === 'lista' && strtoupper($fmt) === 'F19') {
+                        $n++;
+                        $html = $this->renderHtmlInspeccion($id, 'pdf_lista_f19');
+                        foreach (\App\Validation\F19ListaPdfValidador::fallas(
+                            \App\Validation\F19ListaPdfValidador::validar($html)
+                        ) as $msg) {
+                            $fails[] = $msg;
+                        }
+                        file_put_contents($dir . 'f19_lista.html', $html);
+                    }
+                    if ($sufijo === 'lista' && strtoupper($fmt) === 'F20') {
+                        $n++;
+                        $html = $this->renderHtmlInspeccion($id, 'pdf_lista_f20');
+                        $tipoVehPdf = 'D2';
+                        try {
+                            $insPdf = $this->inspecciones->get($id, contain: ['Vehiculos']);
+                            $tipoVehPdf = strtoupper(trim((string)($insPdf->vehiculo->tipo_vehiculo ?? 'D2')));
+                        } catch (Throwable) {
+                            // default D2
+                        }
+                        foreach (\App\Validation\F20ListaPdfValidador::fallas(
+                            \App\Validation\F20ListaPdfValidador::validar($html, $tipoVehPdf)
+                        ) as $msg) {
+                            $fails[] = $msg;
+                        }
+                        file_put_contents($dir . 'f20_lista.html', $html);
+                    }
+                    if ($sufijo === 'lista' && strtoupper($fmt) === 'F21') {
+                        $n++;
+                        $html = $this->renderHtmlInspeccion($id, 'pdf_lista_f21');
+                        foreach (\App\Validation\F21ListaPdfValidador::fallas(
+                            \App\Validation\F21ListaPdfValidador::validar($html)
+                        ) as $msg) {
+                            $fails[] = $msg;
+                        }
+                        file_put_contents($dir . 'f21_lista.html', $html);
+                    }
                 } catch (Throwable $e) {
                     $fails[] = sprintf(
                         '[%s] [PDF] excepción generando %s: %s',
@@ -1174,6 +1517,7 @@ class PruebasNom068Command extends Command
                 'propietario_id' => $this->propietarioId,
                 'niv' => sprintf('1HGCM82633A%06d', 100000 + $this->seq),
                 'placas' => sprintf('PA%04d', $this->seq),
+                'folio_tc' => sprintf('TC%06d', $this->seq),
                 'marca' => 'PRUEBA',
                 'ejes' => (int)($def['ejes'] ?? 2),
                 'anio' => 2024,
@@ -1263,7 +1607,7 @@ class PruebasNom068Command extends Command
      *   hidraulicos_grupos: array<string, list<string>>
      * }
      */
-    private function setCampos(string $tipoFormulario): array
+    private function setCampos(string $tipoFormulario, string $tipoVehiculo = ''): array
     {
         $esTracto = $tipoFormulario === 'F17_TRACTO';
         $esCamion = $tipoFormulario === 'F18_CAMION';
@@ -1271,6 +1615,9 @@ class PruebasNom068Command extends Command
         $esDolly = $tipoFormulario === 'F20_DOLLY';
         $esAutobus = $tipoFormulario === 'F21_AUTOBUS';
         $esCabina = in_array($tipoFormulario, ['F17_TRACTO', 'F18_CAMION', 'F21_AUTOBUS'], true);
+        $tipoVeh = strtoupper(trim($tipoVehiculo));
+        $usaHid = TipoVehiculoRequisitos::usaFrenosHidraulicos($tipoVeh !== '' ? $tipoVeh : ($esCamion ? 'C3' : ''));
+        $usaNeu = TipoVehiculoRequisitos::usaFrenosNeumaticos($tipoVeh !== '' ? $tipoVeh : ($esCamion ? 'C3' : $tipoVeh));
 
         $frenos = ['frenos_abs', 'balatas', 'mecanismo_camara', 'componentes_mecanicos', 'frenos_tambor'];
         if ($esDolly) {
@@ -1318,9 +1665,6 @@ class PruebasNom068Command extends Command
                 $xxxix = ['presion_cierre_con_disp', 'presion_cierre_sin_disp'];
             }
         }
-        if ($esAutobus) {
-            $aire[] = 'valvula_control_remolque';
-        }
 
         $cabina = [];
         if ($esCabina) {
@@ -1329,6 +1673,7 @@ class PruebasNom068Command extends Command
                 $cabina = array_merge($cabina, ['luces_interiores', 'ventanas_laterales', 'espejos_retrovisores']);
             } elseif ($esTracto || $esCamion) {
                 $cabina[] = 'proteccion_camion';
+                $cabina[] = 'freno_emergencia';
             }
         }
 
@@ -1357,7 +1702,7 @@ class PruebasNom068Command extends Command
         }
 
         $hidraulicos = [];
-        if ($esCamion) {
+        if ($esCamion && $usaHid) {
             $hidraulicos = [
                 '22' => [
                     'hid_luz_indicadora', 'hid_cables_acoplamiento', 'estac_balata',
@@ -1372,6 +1717,14 @@ class PruebasNom068Command extends Command
                 '31' => ['hid_liquido_condicion', 'hid_cilindros', 'hid_tambores'],
                 '32' => ['hid_disco', 'hid_calipers', 'hid_pastas_freno'],
             ];
+        }
+
+        // C2L: sin campos de frenos neumáticos / aire / mediciones de presión.
+        if ($esCamion && !$usaNeu) {
+            $frenos = [];
+            $aire = [];
+            $xxxv = [];
+            $xxxviii = [];
         }
 
         return [
@@ -1423,14 +1776,15 @@ class PruebasNom068Command extends Command
         return in_array($tipoForm, ['F17_TRACTO', 'F18_CAMION', 'F21_AUTOBUS'], true);
     }
 
-    private function renderPdfInspeccion(int $id, string $template): string
+    private function renderHtmlInspeccion(int $id, string $template): string
     {
         $base = $this->inspecciones->get($id, contain: []);
         $tipo = (string)($base->tipo_formulario ?? 'F17_TRACTO');
         $secciones = $this->seccionesParaFormulario($tipo);
+        $cargarSecciones = str_starts_with($template, 'pdf_lista');
         $inspeccion = $this->inspecciones->get($id, contain: array_merge(
             ['Vehiculos.Propietarios', 'Tecnicos', 'UnidadesInspeccion', 'InspeccionLlantas'],
-            $template === 'pdf_lista' ? $secciones : []
+            $cargarSecciones ? $secciones : []
         ));
 
         $view = new View();
@@ -1443,7 +1797,13 @@ class PruebasNom068Command extends Command
             'logoDataUri' => '',
             'firmaDataUri' => '',
         ]);
-        $html = $view->render();
+
+        return $view->render();
+    }
+
+    private function renderPdfInspeccion(int $id, string $template): string
+    {
+        $html = $this->renderHtmlInspeccion($id, $template);
 
         $options = new Options();
         $options->set('isRemoteEnabled', true);
@@ -1452,7 +1812,8 @@ class PruebasNom068Command extends Command
 
         $dompdf = new Dompdf($options);
         $dompdf->loadHtml($html, 'UTF-8');
-        $dompdf->setPaper('letter', 'portrait');
+        $paper = $template === 'pdf_lista_f18' ? 'A4' : 'letter';
+        $dompdf->setPaper($paper, 'portrait');
         $dompdf->render();
 
         return $dompdf->output() ?? '';

@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace App\Controller;
 
+use Cake\Datasource\ConnectionManager;
 use Cake\Http\Exception\NotFoundException;
 use Cake\Http\Response;
 use Psr\Http\Message\ResponseInterface;
@@ -18,6 +19,7 @@ class OrdenesServicioController extends AppController
         if ($event->getResult() instanceof ResponseInterface) {
             return;
         }
+        $this->_asegurarColumnaNumeroEquipo();
     }
 
     public function index(): void
@@ -41,7 +43,8 @@ class OrdenesServicioController extends AppController
         $tabla = $this->fetchTable('OrdenesServicio');
         $orden = $tabla->newEmptyEntity();
         if ($this->request->is('post')) {
-            $orden = $tabla->patchEntity($orden, $this->request->getData());
+            $data = $this->_prepararDataOrden($this->request->getData());
+            $orden = $tabla->patchEntity($orden, $data);
             if ($tabla->save($orden)) {
                 $this->Flash->success('Orden de servicio F-04 registrada.');
 
@@ -64,7 +67,8 @@ class OrdenesServicioController extends AppController
             throw new NotFoundException('Orden no encontrada.');
         }
         if ($this->request->is(['post', 'put', 'patch'])) {
-            $orden = $tabla->patchEntity($orden, $this->request->getData());
+            $data = $this->_prepararDataOrden($this->request->getData());
+            $orden = $tabla->patchEntity($orden, $data);
             if ($tabla->save($orden)) {
                 $this->Flash->success('Orden de servicio actualizada.');
 
@@ -85,6 +89,57 @@ class OrdenesServicioController extends AppController
         $this->set(compact('orden'));
     }
 
+    /**
+     * Normaliza número de máquina; si viene vacío e hay inspección ligada, toma el del técnico.
+     *
+     * @param array<string, mixed> $data
+     * @return array<string, mixed>
+     */
+    private function _prepararDataOrden(array $data): array
+    {
+        $eq = trim((string)($data['numero_equipo'] ?? ''));
+        if ($eq === '' && !empty($data['inspeccion_id'])) {
+            try {
+                $ins = $this->fetchTable('Inspecciones')->get((int)$data['inspeccion_id'], contain: ['Tecnicos']);
+                $eq = trim((string)($ins->tecnico->numero_equipo ?? ''));
+            } catch (\Throwable $e) {
+                $eq = '';
+            }
+        }
+        $data['numero_equipo'] = $eq !== '' ? mb_substr($eq, 0, 25) : $eq;
+
+        return $data;
+    }
+
+    private function _asegurarColumnaNumeroEquipo(): void
+    {
+        static $done = false;
+        if ($done) {
+            return;
+        }
+        $done = true;
+        try {
+            $conn = ConnectionManager::get('default');
+            $schemaCollection = $conn->getSchemaCollection();
+            $schema = $schemaCollection->describe('ordenes_servicio');
+            if ($schema->hasColumn('numero_equipo')) {
+                return;
+            }
+            $conn->execute(
+                'ALTER TABLE ordenes_servicio ADD COLUMN numero_equipo VARCHAR(25) NULL DEFAULT NULL'
+            );
+            // Refrescar metadatos para que el ORM vea la columna de inmediato.
+            if (method_exists($schemaCollection, 'cacheMetadata')) {
+                $schemaCollection->cacheMetadata(false);
+            }
+            $this->fetchTable('OrdenesServicio')->setSchema(
+                $schemaCollection->describe('ordenes_servicio')
+            );
+        } catch (\Throwable $e) {
+            // Tabla ausente o sin permisos: el index ya avisa de migración.
+        }
+    }
+
     private function _setCatalogos(): void
     {
         $propietarios = $this->fetchTable('Propietarios')
@@ -103,7 +158,31 @@ class OrdenesServicioController extends AppController
             ->orderByDesc('id')
             ->limit(200)
             ->toArray();
+
+            // Mapa inspección → número de equipo del técnico (para autollenar).
+        $equipoPorInspeccion = [];
+        try {
+            $rows = $this->fetchTable('Inspecciones')
+                ->find()
+                ->contain(['Tecnicos'])
+                ->orderByDesc('Inspecciones.id')
+                ->limit(200)
+                ->all();
+            foreach ($rows as $row) {
+                $equipoPorInspeccion[(int)$row->id] = trim((string)($row->tecnico->numero_equipo ?? ''));
+            }
+        } catch (\Throwable $e) {
+            $equipoPorInspeccion = [];
+        }
+
         $estatusOpts = ['BORRADOR' => 'Borrador', 'EMITIDA' => 'Emitida', 'CANCELADA' => 'Cancelada'];
-        $this->set(compact('propietarios', 'vehiculos', 'unidades', 'inspecciones', 'estatusOpts'));
+        $this->set(compact(
+            'propietarios',
+            'vehiculos',
+            'unidades',
+            'inspecciones',
+            'estatusOpts',
+            'equipoPorInspeccion'
+        ));
     }
 }

@@ -3,6 +3,7 @@
 namespace App\Model\Table;
 
 use App\Validation\InspeccionMexico;
+use ArrayObject;
 use Cake\Datasource\EntityInterface;
 use Cake\Event\EventInterface;
 use Cake\ORM\Table;
@@ -17,6 +18,14 @@ class PropietariosTable extends Table
         $this->setDisplayField('nombre_razon_social');
         $this->addBehavior('Timestamp');
         $this->hasMany('Vehiculos', ['foreignKey' => 'propietario_id']);
+    }
+
+    public function beforeMarshal(EventInterface $event, ArrayObject $data, ArrayObject $options): void
+    {
+        if (isset($data['codigo_postal'])) {
+            $cp = preg_replace('/\D+/', '', (string)$data['codigo_postal']);
+            $data['codigo_postal'] = substr((string)$cp, 0, 5);
+        }
     }
 
     public function validationDefault(Validator $validator): Validator
@@ -52,11 +61,13 @@ class PropietariosTable extends Table
                 'message' => 'Seleccione una entidad federativa válida.',
             ])
             ->notEmptyString('codigo_postal', 'El código postal es obligatorio.')
+            ->maxLength('codigo_postal', 5, 'El código postal debe tener exactamente 5 dígitos.')
+            ->minLength('codigo_postal', 5, 'El código postal debe tener exactamente 5 dígitos.')
             ->add('codigo_postal', 'cpMx', [
                 'rule' => function ($value) {
                     return InspeccionMexico::codigoPostalValido((string)$value);
                 },
-                'message' => 'Código postal debe ser de 5 dígitos.',
+                'message' => 'Código postal: solo 5 caracteres numéricos (ej. 06600).',
             ]);
 
         if ($this->getSchema()->hasColumn('correo')) {
@@ -91,6 +102,10 @@ class PropietariosTable extends Table
             if ($r !== '') {
                 $entity->set('rfc', InspeccionMexico::normalizarRfc($r));
             }
+        }
+        if ($entity->isDirty('codigo_postal')) {
+            $cp = preg_replace('/\D+/', '', (string)$entity->get('codigo_postal'));
+            $entity->set('codigo_postal', substr((string)$cp, 0, 5));
         }
         if ($entity->isDirty('estado')) {
             $e = (string)$entity->get('estado');
