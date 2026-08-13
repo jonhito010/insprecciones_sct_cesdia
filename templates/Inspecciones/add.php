@@ -272,6 +272,9 @@ if (!$esEdicion && $folioTipoIni === '' && $folioEsperadoFormulario !== null) {
           <span class="cesdia-horario-candado__icon" aria-hidden="true">🔒</span>
           <span id="cesdia-horario-candado-msg"></span>
         </div>
+        <p id="cesdia-horario-duracion-msg" class="cesdia-field-error" style="display:none;margin:8px 0 0">
+          La hora de fin debe ser exactamente 30 minutos después de la hora de inicio.
+        </p>
         <p id="cesdia-horario-ocupados-hint" class="cesdia-horario-hint" style="display:none;margin:8px 0 0;font-size:12px;color:var(--gmuted)"></p>
       </div>
       <div class="cesdia-form-group">
@@ -701,6 +704,7 @@ echo $this->element($armador, [
     var wrapCandado = document.getElementById('cesdia-horario-candado-wrap');
     var msgCandado = document.getElementById('cesdia-horario-candado-msg');
     var hintOcupados = document.getElementById('cesdia-horario-ocupados-hint');
+    var msgDuracion = document.getElementById('cesdia-horario-duracion-msg');
     var btnGuardar = document.getElementById('cesdia-btn-guardar-inspeccion');
     if (!inpFecha || !inpIni || !inpFin || !wrapCandado || !msgCandado) {
       return;
@@ -728,6 +732,51 @@ echo $this->element($armador, [
       return parseInt(p[1], 10) * 3600 + parseInt(p[2], 10) * 60;
     }
 
+    var DURACION_SEG = 30 * 60;
+
+    function segundosAHoraInput(seg) {
+      var h = Math.floor(seg / 3600);
+      var m = Math.floor((seg % 3600) / 60);
+      var hh = (h < 10 ? '0' : '') + h;
+      var mm = (m < 10 ? '0' : '') + m;
+      var muestraSeg = String(inpIni.value || '').split(':').length >= 3
+        || String(inpFin.value || '').split(':').length >= 3;
+      return muestraSeg ? (hh + ':' + mm + ':00') : (hh + ':' + mm);
+    }
+
+    function aplicarHoraFin30() {
+      var ini = horaASegundos(inpIni.value);
+      if (ini === null) {
+        return;
+      }
+      var finEsp = ini + DURACION_SEG;
+      if (finEsp >= 24 * 3600) {
+        return;
+      }
+      inpFin.value = segundosAHoraInput(finEsp);
+    }
+
+    function evaluarDuracion() {
+      var ini = horaASegundos(inpIni.value);
+      var fin = horaASegundos(inpFin.value);
+      var cruzamedia = ini !== null && (ini + DURACION_SEG) >= 24 * 3600;
+      var ok = !cruzamedia && ini !== null && fin !== null && fin === ini + DURACION_SEG;
+      var pendiente = ini === null || fin === null;
+      if (msgDuracion) {
+        if (cruzamedia) {
+          msgDuracion.textContent = 'La hora de inicio no permite sumar 30 minutos en el mismo día.';
+          msgDuracion.style.display = 'block';
+        } else if (!pendiente && !ok) {
+          msgDuracion.textContent = 'La hora de fin debe ser exactamente 30 minutos después de la hora de inicio.';
+          msgDuracion.style.display = 'block';
+        } else {
+          msgDuracion.style.display = 'none';
+        }
+      }
+      window.cesdiaGuardarBloqueos.duracion = cruzamedia || (!pendiente && !ok);
+      actualizarBtnGuardar();
+    }
+
     function traslape(ini, fin, lista) {
       if (ini === null || fin === null || ini >= fin) {
         return null;
@@ -741,16 +790,18 @@ echo $this->element($armador, [
       return null;
     }
 
-    window.cesdiaGuardarBloqueos = window.cesdiaGuardarBloqueos || { horario: false, folio: false };
+    window.cesdiaGuardarBloqueos = window.cesdiaGuardarBloqueos || { horario: false, folio: false, duracion: false };
     function actualizarBtnGuardar() {
       var b = window.cesdiaGuardarBloqueos;
-      var bloqueado = !!(b.horario || b.folio);
+      var bloqueado = !!(b.horario || b.folio || b.duracion);
       if (!btnGuardar) {
         return;
       }
       btnGuardar.disabled = bloqueado;
       if (b.folio) {
         btnGuardar.title = 'Folio duplicado: corrija el número de dictamen';
+      } else if (b.duracion) {
+        btnGuardar.title = 'La hora de fin debe ser 30 minutos después de la hora de inicio';
       } else if (b.horario) {
         btnGuardar.title = 'Horario no disponible para este técnico';
       } else {
@@ -839,14 +890,22 @@ echo $this->element($armador, [
 
     [inpFecha, inpIni, inpFin].forEach(function (el) {
       el.addEventListener('change', function () {
+        if (el === inpIni) {
+          aplicarHoraFin30();
+        }
+        evaluarDuracion();
         evaluarCandado();
         if (el === inpFecha) {
           programarCarga();
-        } else {
-          evaluarCandado();
         }
       });
-      el.addEventListener('input', evaluarCandado);
+      el.addEventListener('input', function () {
+        if (el === inpIni) {
+          aplicarHoraFin30();
+        }
+        evaluarDuracion();
+        evaluarCandado();
+      });
     });
     if (selTec) {
       selTec.addEventListener('change', programarCarga);
@@ -855,6 +914,7 @@ echo $this->element($armador, [
     var formIns = inpFecha.closest('form');
     if (formIns) {
       formIns.addEventListener('submit', function (ev) {
+        evaluarDuracion();
         evaluarCandado();
         if (btnGuardar && btnGuardar.disabled) {
           ev.preventDefault();
@@ -862,6 +922,7 @@ echo $this->element($armador, [
       });
     }
 
+    evaluarDuracion();
     programarCarga();
   });
 })();
@@ -1149,7 +1210,7 @@ echo $this->element($armador, [
     var excluirFolioId = <?= $esEdicion ? (int)$inspeccion->id : 0 ?>;
     var estadoFolio = document.getElementById('cesdia-folio-estado');
     var folioTimer = null;
-    window.cesdiaGuardarBloqueos = window.cesdiaGuardarBloqueos || { horario: false, folio: false };
+    window.cesdiaGuardarBloqueos = window.cesdiaGuardarBloqueos || { horario: false, folio: false, duracion: false };
 
     function setFolioUi(ok, msg) {
       resto.classList.toggle('cesdia-input--bloqueado', !ok && !!msg);
