@@ -11,9 +11,14 @@
  */
 $acopl = $inspeccion->inspeccion_acoplamiento ?? null;
 $esDolly = ($tipoFormulario ?? '') === 'F20_DOLLY';
-// T2/T3 (F-17): CUMPLE por defecto (excepto oscilante → N/A). Dolly: N/A.
-$defaultAcopl = $esDolly ? 'N/A' : 'CUMPLE';
-$defaultOscilante = 'N/A';
+// Mismos defaults que F-17: quinta fija CUMPLE + oscilante N/A; gancho pinzón N/A en Dolly.
+$defaultsAcopl = [
+    'quinta_rueda'           => 'CUMPLE',
+    'deslizadores'           => 'CUMPLE',
+    'gancho_pinzon'          => $esDolly ? 'N/A' : 'CUMPLE',
+    'quinta_rueda_oscilante' => 'N/A',
+    'manija_operacion'       => 'CUMPLE',
+];
 
 // P3.2: F-17 solo 5 conceptos NOM 79 (ocultar extras; columnas se conservan).
 $camposAcopl = [
@@ -38,7 +43,7 @@ $camposAcopl = [
     </p>
     <div class="cesdia-grid-3">
       <?php foreach ($camposAcopl as $c => $label):
-        $defCampo = ($c === 'quinta_rueda_oscilante') ? $defaultOscilante : $defaultAcopl;
+        $defCampo = $defaultsAcopl[$c] ?? 'CUMPLE';
         $val = ($acopl && isset($acopl->$c) && $acopl->$c !== null && $acopl->$c !== '')
           ? $acopl->$c
           : $defCampo;
@@ -72,13 +77,12 @@ $camposAcopl = [
     var fija = selFija();
     var osc = selOsc();
     if (!fija || !osc) return;
-    if (origen === 'fija' && calificada(fija.value)) {
+    if (calificada(fija.value)) {
       osc.value = 'N/A';
-    } else if (origen === 'oscilante' && calificada(osc.value)) {
+      return;
+    }
+    if (origen === 'oscilante' && calificada(osc.value)) {
       fija.value = 'N/A';
-    } else if (calificada(fija.value) && calificada(osc.value)) {
-      // Ambos calificados (dato viejo): prioridad a fija.
-      osc.value = 'N/A';
     }
   }
   document.addEventListener('DOMContentLoaded', function () {

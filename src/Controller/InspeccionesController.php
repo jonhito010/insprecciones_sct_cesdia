@@ -524,6 +524,7 @@ class InspeccionesController extends AppController
                 $editData,
                 ['associated' => $associated]
             );
+            $this->_normalizarAcoplamientoDollyEnActualizacion($inspeccion);
             $this->_normalizarLlantasSegunTipo($inspeccion);
             $alcance = $this->alcanceTecnicoId();
             if ($alcance !== null && $alcance > 0) {
@@ -595,6 +596,8 @@ class InspeccionesController extends AppController
             }
         }
 
+        // Dolly legacy: al abrir edición, corregir acoplamiento todo-N/A y quinta excluyente.
+        $this->_normalizarAcoplamientoDollyEnActualizacion($inspeccion);
         $this->_cargarCatalogos($inspeccion);
         $this->set(compact('inspeccion', 'tipoFormulario'));
         return null;
@@ -1494,7 +1497,7 @@ class InspeccionesController extends AppController
         $inspeccion->fecha_inspeccion = Date::now();
         $inspeccion->fecha_inspeccion_ant = Date::now()->subYears(1);
         $inspeccion->hora_inicio = '09:00:00';
-        $inspeccion->hora_fin = '10:00:00';
+        $inspeccion->hora_fin = '09:30:00';
         $inspeccion->resultado = 'APROBADO'; // legacy sync
         if ($this->Inspecciones->getSchema()->hasColumn('dictamen')) {
             $inspeccion->dictamen = 'CUMPLE';
@@ -1610,16 +1613,20 @@ class InspeccionesController extends AppController
         ]));
 
         $esDollyDef = strtoupper(trim((string)($inspeccion->tipo_formulario ?? ''))) === 'F20_DOLLY';
-        $defAcopl = $esDollyDef ? 'N/A' : 'CUMPLE';
-        // Quinta fija vs oscilante: excluyentes. T2/T3: fija CUMPLE + oscilante N/A.
-        $inspeccion->set('inspeccion_acoplamiento', $this->Inspecciones->InspeccionAcoplamiento->newEntity(array_fill_keys([
-            'quinta_rueda', 'deslizadores', 'gancho_pinzon', 'ojo_lanza', 'barra_traccion',
-            'quinta_rueda_oscilante', 'manija_operacion', 'cadenas_sujetadores', 'capacidad_arrastre',
-        ], $defAcopl) + (
-            $esDollyDef
-                ? []
-                : ['quinta_rueda_oscilante' => 'N/A']
-        )));
+        // Quinta fija vs oscilante: excluyentes. F-17 y F-20: fija CUMPLE + oscilante N/A.
+        $acoplVisible = [
+            'quinta_rueda' => 'CUMPLE',
+            'deslizadores' => 'CUMPLE',
+            'gancho_pinzon' => $esDollyDef ? 'N/A' : 'CUMPLE',
+            'quinta_rueda_oscilante' => 'N/A',
+            'manija_operacion' => 'CUMPLE',
+        ];
+        $acoplExtra = $esDollyDef
+            ? array_fill_keys(['ojo_lanza', 'barra_traccion', 'cadenas_sujetadores', 'capacidad_arrastre'], 'N/A')
+            : array_fill_keys(['ojo_lanza', 'barra_traccion', 'cadenas_sujetadores', 'capacidad_arrastre'], 'CUMPLE');
+        $inspeccion->set('inspeccion_acoplamiento', $this->Inspecciones->InspeccionAcoplamiento->newEntity(
+            $acoplVisible + $acoplExtra
+        ));
 
         $llantasTbl = $this->Inspecciones->InspeccionLlantas;
         $inspeccion->inspeccion_llantas = $llantasTbl->newEntities([]);
@@ -1632,6 +1639,64 @@ class InspeccionesController extends AppController
             'propietario' => $vt->Propietarios->newEntity([]),
         ];
         $inspeccion->vehiculo = $vt->newEntity($vehDef, ['validate' => false, 'associated' => ['Propietarios']]);
+    }
+
+    /**
+     * F-20 Dolly: al editar/actualizar, corrige acoplamiento legacy (todo N/A)
+     * y mantiene quinta fija vs oscilante excluyentes (igual que F-17).
+     */
+    private function _normalizarAcoplamientoDollyEnActualizacion(Entity $inspeccion): void
+    {
+        if (strtoupper(trim((string)($inspeccion->tipo_formulario ?? ''))) !== 'F20_DOLLY') {
+            return;
+        }
+
+        $tbl = $this->Inspecciones->InspeccionAcoplamiento;
+        $defaults = [
+            'quinta_rueda' => 'CUMPLE',
+            'deslizadores' => 'CUMPLE',
+            'gancho_pinzon' => 'N/A',
+            'quinta_rueda_oscilante' => 'N/A',
+            'manija_operacion' => 'CUMPLE',
+            'ojo_lanza' => 'N/A',
+            'barra_traccion' => 'N/A',
+            'cadenas_sujetadores' => 'N/A',
+            'capacidad_arrastre' => 'N/A',
+        ];
+
+        $acopl = $inspeccion->inspeccion_acoplamiento;
+        if ($acopl === null) {
+            $inspeccion->set('inspeccion_acoplamiento', $tbl->newEntity($defaults));
+
+            return;
+        }
+
+        $norm = static fn ($v): string => strtoupper(trim((string)$v));
+        $visibles = ['quinta_rueda', 'deslizadores', 'gancho_pinzon', 'quinta_rueda_oscilante', 'manija_operacion'];
+        $todosNaOVacios = true;
+        foreach ($visibles as $c) {
+            $v = $norm($acopl->get($c) ?? '');
+            if ($v !== '' && $v !== 'N/A') {
+                $todosNaOVacios = false;
+                break;
+            }
+        }
+        if ($todosNaOVacios) {
+            foreach ($defaults as $k => $v) {
+                $acopl->set($k, $v);
+            }
+
+            return;
+        }
+
+        $fija = $norm($acopl->get('quinta_rueda') ?? '');
+        $osc = $norm($acopl->get('quinta_rueda_oscilante') ?? '');
+        $califica = static fn (string $v): bool => $v === 'CUMPLE' || $v === 'NO CUMPLE';
+        if ($califica($fija) && ($califica($osc) || $osc === '')) {
+            $acopl->set('quinta_rueda_oscilante', 'N/A');
+        } elseif ($califica($osc) && $fija === '') {
+            $acopl->set('quinta_rueda', 'N/A');
+        }
     }
 
     /** Devuelve true si el usuario intentó subir un archivo (aunque sea inválido). */

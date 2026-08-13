@@ -1049,9 +1049,13 @@ $pdfSymLl = static function (?string $vx) use ($mk): string {
         </tr>
         <tr>
           <td>
-            <span class="tipo-box">
-              <?= !empty($v?->tipo_vehiculo) ? strtoupper(substr(h((string)$v->tipo_vehiculo), 0, 2)) : 'A' ?>
-            </span>
+            <?php
+              // Oficial F-20.pdf: casilla "TIPO DE INSPECCIÓN" = letra de folio (A = arrastre).
+              $letraTipoInsp = \App\Validation\TipoVehiculoRequisitos::prefijoFolioDictamen(
+                  (string)($inspeccion->folio_dictamen ?? '')
+              ) ?? 'A';
+            ?>
+            <span class="tipo-box"><?= h($letraTipoInsp) ?></span>
           </td>
         </tr>
       </table>
@@ -1068,8 +1072,8 @@ $pdfSymLl = static function (?string $vx) use ($mk): string {
       <td style="width:14px;">V</td>
       <td style="width:14px;">M</td>
       <td class="th-concepto">CONCEPTO</td>
-      <td style="width:34px;">APROBADO</td>
-      <td style="width:38px;">RECHAZADO</td>
+      <td style="width:34px;">Cumple</td>
+      <td style="width:38px;">No Cumple</td>
       <td style="width:26px;">N/A</td>
     </tr>
   <?php foreach ($secciones as $sec): ?>
