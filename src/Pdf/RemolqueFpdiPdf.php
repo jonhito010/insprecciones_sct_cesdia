@@ -22,8 +22,93 @@ final class RemolqueFpdiPdf
     private const PAGE_H = 1008.0;
     /** Tamaño medido en PLATILLA ARRASTRE.pdf (Tf 7.92). */
     private const FONT_SIZE = 7.9;
+    /** Observaciones: letra más pequeña en los 3 bloques. */
+    private const OBS_FONT_SIZE = 6.2;
     /** Bloque 1: bajar todo el texto 5 mm respecto a la plantilla. */
     private const BLOQUE1_BAJA_Y_PT = 5.0 * 72.0 / 25.4;
+    /** Bloque 1: subir 5 mm solo la primera línea (el resto no se mueve). */
+    private const BLOQUE1_PRIMERA_LINEA_SUBE_Y_PT = -5.0 * 72.0 / 25.4;
+    /** @var list<string> */
+    private const BLOQUE1_PRIMERA_LINEA = [
+        'folio_dictamen',
+        'uv_clave',
+        'resultado',
+        'tipo_servicio',
+        'fecha_inspeccion',
+        'fecha_anterior',
+    ];
+    /** Bloque 1: hora inicio/fin 2 mm a la derecha y 5 mm arriba. */
+    private const BLOQUE1_HORAS_DX_PT = 2.0 * 72.0 / 25.4;
+    private const BLOQUE1_HORAS_SUBE_Y_PT = -5.0 * 72.0 / 25.4;
+    /** @var list<string> */
+    private const BLOQUE1_HORAS = [
+        'hora_inicio',
+        'hora_fin',
+    ];
+    /** Bloque 1: nombre / razón social 1.5 cm hacia arriba. */
+    private const BLOQUE1_NOMBRE_SUBE_Y_PT = -15.0 * 72.0 / 25.4;
+    /** Bloque 1: RFC 6 mm arriba y 2 mm a la izquierda. */
+    private const BLOQUE1_RFC_DX_PT = -2.0 * 72.0 / 25.4;
+    private const BLOQUE1_RFC_SUBE_Y_PT = -6.0 * 72.0 / 25.4;
+    /** Bloque 1: domicilio 4 mm hacia arriba. */
+    private const BLOQUE1_DOMICILIO_SUBE_Y_PT = -4.0 * 72.0 / 25.4;
+    /** Bloque 1: demarcación, estado y CP 5 mm hacia arriba. */
+    private const BLOQUE1_LOC_ESTADO_CP_SUBE_Y_PT = -5.0 * 72.0 / 25.4;
+    /** @var list<string> */
+    private const BLOQUE1_LOC_ESTADO_CP = [
+        'propietario_loc',
+        'propietario_estado',
+        'propietario_cp',
+    ];
+    /** Bloque 1: CP 3 mm a la derecha. */
+    private const BLOQUE1_CP_DX_PT = 3.0 * 72.0 / 25.4;
+    /** Bloque 1: placas, NIV, tipo, marca y año 4 mm hacia arriba. */
+    private const BLOQUE1_VEHICULO_SUBE_Y_PT = -4.0 * 72.0 / 25.4;
+    /** @var list<string> */
+    private const BLOQUE1_VEHICULO = [
+        'placas',
+        'niv',
+        'tipo_modalidad',
+        'marca',
+        'anio',
+    ];
+    /** Bloque 1: tipo de vehículo y año/modelo 3 mm a la derecha. */
+    private const BLOQUE1_TIPO_MODELO_DX_PT = 3.0 * 72.0 / 25.4;
+    /** @var list<string> */
+    private const BLOQUE1_TIPO_MODELO = [
+        'tipo_modalidad',
+        'anio',
+    ];
+    /** Bloque 1: folio de tarjeta de circulación 4 mm hacia arriba y 2 cm a la izquierda. */
+    private const BLOQUE1_FOLIO_TC_SUBE_Y_PT = -4.0 * 72.0 / 25.4;
+    private const BLOQUE1_FOLIO_TC_DX_PT = -20.0 * 72.0 / 25.4;
+    /** Bloque 1: el vehículo se presentó 4 mm hacia arriba. */
+    private const BLOQUE1_PRESENTADO_SUBE_Y_PT = -4.0 * 72.0 / 25.4;
+    /** Bloque 1: observaciones 3 mm hacia arriba. */
+    private const BLOQUE1_OBS_SUBE_Y_PT = -3.0 * 72.0 / 25.4;
+    /** Bloque 1: nombre del técnico 3 mm arriba y 5 mm a la izquierda. */
+    private const BLOQUE1_TECNICO_SUBE_Y_PT = -3.0 * 72.0 / 25.4;
+    private const BLOQUE1_TECNICO_DX_PT = -5.0 * 72.0 / 25.4;
+    /** Bloque 1: firma un poco más grande (~30 %). */
+    private const BLOQUE1_FIRMA_ESCALA = 1.3;
+    /** Bloque 2: hora inicio/fin 3 mm hacia abajo y 2 mm a la derecha. */
+    private const BLOQUE2_HORAS_BAJA_Y_PT = 3.0 * 72.0 / 25.4;
+    private const BLOQUE2_HORAS_DX_PT = 2.0 * 72.0 / 25.4;
+    /** Bloque 2: domicilio 3 mm hacia abajo. */
+    private const BLOQUE2_DOMICILIO_BAJA_Y_PT = 3.0 * 72.0 / 25.4;
+    /** Bloque 2: CP 4 mm a la derecha. */
+    private const BLOQUE2_CP_DX_PT = 4.0 * 72.0 / 25.4;
+    /** Bloque 2: marca 3 mm a la derecha. */
+    private const BLOQUE2_MARCA_DX_PT = 3.0 * 72.0 / 25.4;
+    /** Bloque 2: firma 1 cm abajo y 2 cm a la derecha. */
+    private const BLOQUE2_FIRMA_BAJA_Y_PT = 10.0 * 72.0 / 25.4;
+    private const BLOQUE2_FIRMA_DX_PT = 20.0 * 72.0 / 25.4;
+    /** Bloque 3: primera línea 1 mm hacia abajo. */
+    private const BLOQUE3_PRIMERA_LINEA_BAJA_Y_PT = 1.0 * 72.0 / 25.4;
+    /** Bloque 3: firma 4 mm abajo, 4 mm a la derecha y más grande. */
+    private const BLOQUE3_FIRMA_BAJA_Y_PT = 4.0 * 72.0 / 25.4;
+    private const BLOQUE3_FIRMA_DX_PT = 4.0 * 72.0 / 25.4;
+    private const BLOQUE3_FIRMA_ESCALA = 1.3;
     /** false = solo texto (sin base PDF). true = fondo de calibración. */
     private const USE_FONDO_CALIBRACION = false;
 
@@ -223,6 +308,9 @@ final class RemolqueFpdiPdf
                 if ($key === 'observaciones' || $key === 'propietario_calle') {
                     $pos['multiline'] = true;
                 }
+                if ($key === 'observaciones') {
+                    $pos['size'] = self::OBS_FONT_SIZE;
+                }
                 self::escribirTexto($pdf, $pos, $texto);
             }
         }
@@ -260,6 +348,83 @@ final class RemolqueFpdiPdf
     {
         if ($bloque === 0) {
             $pos['y'] += self::BLOQUE1_BAJA_Y_PT;
+            if (in_array($campo, self::BLOQUE1_PRIMERA_LINEA, true)) {
+                $pos['y'] += self::BLOQUE1_PRIMERA_LINEA_SUBE_Y_PT;
+            }
+            if (in_array($campo, self::BLOQUE1_HORAS, true)) {
+                $pos['x'] += self::BLOQUE1_HORAS_DX_PT;
+                $pos['y'] += self::BLOQUE1_HORAS_SUBE_Y_PT;
+            }
+            if ($campo === 'propietario_nombre') {
+                $pos['y'] += self::BLOQUE1_NOMBRE_SUBE_Y_PT;
+            }
+            if ($campo === 'propietario_rfc') {
+                $pos['x'] += self::BLOQUE1_RFC_DX_PT;
+                $pos['y'] += self::BLOQUE1_RFC_SUBE_Y_PT;
+            }
+            if ($campo === 'propietario_calle') {
+                $pos['y'] += self::BLOQUE1_DOMICILIO_SUBE_Y_PT;
+            }
+            if (in_array($campo, self::BLOQUE1_LOC_ESTADO_CP, true)) {
+                $pos['y'] += self::BLOQUE1_LOC_ESTADO_CP_SUBE_Y_PT;
+            }
+            if ($campo === 'propietario_cp') {
+                $pos['x'] += self::BLOQUE1_CP_DX_PT;
+            }
+            if (in_array($campo, self::BLOQUE1_VEHICULO, true)) {
+                $pos['y'] += self::BLOQUE1_VEHICULO_SUBE_Y_PT;
+            }
+            if (in_array($campo, self::BLOQUE1_TIPO_MODELO, true)) {
+                $pos['x'] += self::BLOQUE1_TIPO_MODELO_DX_PT;
+            }
+            if ($campo === 'folio_tc') {
+                $pos['x'] += self::BLOQUE1_FOLIO_TC_DX_PT;
+                $pos['y'] += self::BLOQUE1_FOLIO_TC_SUBE_Y_PT;
+            }
+            if ($campo === 'presentado') {
+                $pos['y'] += self::BLOQUE1_PRESENTADO_SUBE_Y_PT;
+            }
+            if ($campo === 'observaciones') {
+                $pos['y'] += self::BLOQUE1_OBS_SUBE_Y_PT;
+            }
+            if ($campo === 'tecnico_verificador') {
+                $pos['x'] += self::BLOQUE1_TECNICO_DX_PT;
+                $pos['y'] += self::BLOQUE1_TECNICO_SUBE_Y_PT;
+            }
+            if ($campo === 'firma') {
+                $pos['w'] *= self::BLOQUE1_FIRMA_ESCALA;
+                $pos['h'] *= self::BLOQUE1_FIRMA_ESCALA;
+            }
+        } elseif ($bloque === 1) {
+            if (in_array($campo, self::BLOQUE1_HORAS, true)) {
+                $pos['x'] += self::BLOQUE2_HORAS_DX_PT;
+                $pos['y'] += self::BLOQUE2_HORAS_BAJA_Y_PT;
+            }
+            if ($campo === 'propietario_calle') {
+                $pos['y'] += self::BLOQUE2_DOMICILIO_BAJA_Y_PT;
+            }
+            if ($campo === 'propietario_cp') {
+                $pos['x'] += self::BLOQUE2_CP_DX_PT;
+            }
+            if ($campo === 'marca') {
+                $pos['x'] += self::BLOQUE2_MARCA_DX_PT;
+            }
+            if ($campo === 'firma') {
+                $pos['x'] += self::BLOQUE2_FIRMA_DX_PT;
+                $pos['y'] += self::BLOQUE2_FIRMA_BAJA_Y_PT;
+                $pos['w'] *= self::BLOQUE1_FIRMA_ESCALA;
+                $pos['h'] *= self::BLOQUE1_FIRMA_ESCALA;
+            }
+        } elseif ($bloque === 2) {
+            if (in_array($campo, self::BLOQUE1_PRIMERA_LINEA, true)) {
+                $pos['y'] += self::BLOQUE3_PRIMERA_LINEA_BAJA_Y_PT;
+            }
+            if ($campo === 'firma') {
+                $pos['x'] += self::BLOQUE3_FIRMA_DX_PT;
+                $pos['y'] += self::BLOQUE3_FIRMA_BAJA_Y_PT;
+                $pos['w'] *= self::BLOQUE3_FIRMA_ESCALA;
+                $pos['h'] *= self::BLOQUE3_FIRMA_ESCALA;
+            }
         }
 
         return $pos;
