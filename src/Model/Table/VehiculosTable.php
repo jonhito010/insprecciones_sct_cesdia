@@ -86,6 +86,8 @@ class VehiculosTable extends Table
             'PAQUETERIA Y MENSAJERIA' => 'Paquetería y mensajería',
             'ARRENDAMIENTO' => 'Arrendamiento',
             'CARGA ESPECIALIZADA' => 'Carga especializada',
+            'PASAJE' => 'Pasaje',
+            'TURISMO' => 'Turismo',
             // Valor histórico en BD; se mantiene para no invalidar registros previos.
             'AUTOTRANSPORTE FEDERAL' => 'Autotransporte federal',
         ];
@@ -109,6 +111,8 @@ class VehiculosTable extends Table
         return [
             'CARGA GENERAL' => 'Carga general',
             'CARGA ESPECIALIZADA' => 'Carga especializada',
+            'PASAJE' => 'Pasaje',
+            'TURISMO' => 'Turismo',
         ];
     }
 
@@ -333,7 +337,7 @@ PHP;
 
                     return true;
                 },
-                'message' => 'Según la modalidad: en transporte federal elija carga general, paquetería y mensajería, arrendamiento o carga especializada; en transporte privado elija carga general o carga especializada.',
+                'message' => 'Según la modalidad: en transporte federal o privado elija un tipo de servicio de la lista (incluye pasaje y turismo).',
             ]);
 
         $schema = $this->getSchema();

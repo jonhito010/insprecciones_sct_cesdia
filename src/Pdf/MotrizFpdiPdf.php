@@ -519,6 +519,7 @@ final class MotrizFpdiPdf
             'CARGA ESPECIALIZADA' => 'CE',
             'PASAJE' => 'PA',
             'PASAJEROS' => 'PA',
+            'TURISMO' => 'TU',
         ];
         $up = strtoupper($valor);
 
