@@ -237,12 +237,7 @@ $gruposLlantaF19 = [
 /* Llantas: delanteras (primer eje en cabina = direccional) y traseras. */
 $llDelanteras = [];
 $llTraseras   = [];
-$dollyRinPar = static fn (int $gn, string $par): string => match ($gn) {
-    1 => '3/4',
-    5 => '5/6',
-    7 => '7/8',
-    default => $par,
-};
+$dollyRinPar = static fn (int $gn, string $par): string => $par;
 
 /*
  * F-17 / F-18: el formato oficial SIEMPRE imprime 1 grupo delantero + 4 traseros
@@ -301,7 +296,7 @@ if ($tipoFormulario === 'F17_TRACTO' || $tipoFormulario === 'F18_CAMION') {
     }
 }
 
-/* Oficial F-20: 3 grupos (1/2, 5/6, 7/8), 7 filas c/u, sin RIN DE ARTILLERÍA. Textos F-20_DOLLY.txt. */
+/* F-20: un grupo por par dual (1/2, 3/4, …), 7 filas c/u, sin RIN DE ARTILLERÍA. */
 $tireRowsF20 = static function (array $spec) use ($LG, $L): array {
     $n = (int)$spec['gn'];
     $pos = $spec['pos'] ?? null;
@@ -321,13 +316,14 @@ $tireRowsF20 = static function (array $spec) use ($LG, $L): array {
 };
 $gruposLlantaF20 = $tipoVehCod === 'D1'
     ? [
-        // D1 (1 eje): captura 1…4 — dibujo/presión/banda/costado; rines en pares 1/2 y 3/4.
+        // D1 (1 eje): pares 1/2 y 3/4, rin alineado al mismo par.
         ['gn' => 1, 'titulo' => 'LLANTA 1/2 EXTERIOR  ESPESOR MINIMO 1,6 mm', 'rin' => '1/2', 'pos' => null],
         ['gn' => 3, 'titulo' => 'LLANTA 3/4 EXTERIOR ESPESOR MINIMO 1,6 mm',  'rin' => '3/4', 'pos' => null],
     ]
     : [
-        // Oficial F-20 / D2: 3 grupos (1/2, 5/6, 7/8).
-        ['gn' => 1, 'titulo' => 'LLANTA 1/2 EXTERIOR  ESPESOR MINIMO 1,6 mm', 'rin' => '3/4', 'pos' => null],
+        // D2 (2 ejes): 4 pares correlativos; no saltar 3/4 (antes el formato SCT iba 1/2 → 5/6).
+        ['gn' => 1, 'titulo' => 'LLANTA 1/2 EXTERIOR  ESPESOR MINIMO 1,6 mm', 'rin' => '1/2', 'pos' => null],
+        ['gn' => 3, 'titulo' => 'LLANTA 3/4 EXTERIOR ESPESOR MINIMO 1,6 mm',  'rin' => '3/4', 'pos' => null],
         ['gn' => 5, 'titulo' => 'LLANTA 5/6 INTERIOR ESPESOR MINIMO 1,6 mm',  'rin' => '5/6', 'pos' => null],
         ['gn' => 7, 'titulo' => 'LLANTA 7/8 EXTERIOR ESPESOR MINIMO 1,6 mm',  'rin' => '7/8', 'pos' => null],
     ];
@@ -858,14 +854,14 @@ $pdfSymLl = static function (?string $vx) use ($mk): string {
 <meta charset="utf-8"/>
 <style>
   /* Dompdf: no usar html/body { margin:0 } o anula @page margin */
-  @page { margin: 12mm 14mm 14mm 14mm; size: letter portrait; }
+  @page { margin: 10mm 12mm 12mm 12mm; size: letter portrait; }
 
   * { box-sizing: border-box; }
   body {
     font-family: DejaVu Sans, Arial, Helvetica, sans-serif;
-    font-size: 7pt;
+    font-size: 6.8pt;
     color: #111;
-    line-height: 1.22;
+    line-height: 1.15;
     background: #fff;
   }
 
@@ -913,7 +909,7 @@ $pdfSymLl = static function (?string $vx) use ($mk): string {
 
   /* ── Tabla principal de checklist ── */
   .chk { width:100%; border-collapse:collapse; border:1.15pt solid #6a9e78; margin-bottom:7px; }
-  .chk th, .chk td { border:1pt solid #9bc4a4; padding:4px 5px; vertical-align:middle; }
+  .chk th, .chk td { border:1pt solid #9bc4a4; padding:2.5px 4px; vertical-align:middle; }
 
   /* Encabezado de columnas una sola vez (no <thead>). */
   .chk tr.th-top td {
@@ -1126,30 +1122,33 @@ $mostrarVolanteHolgura = false; // F-20 Dolly no tiene dirección
         <thead>
           <tr>
             <th style="width:22px;">LLANTA #</th>
-            <th>DIBUJO<br/>mm</th>
-            <th>PRESIÓN<br/>PSI</th>
-            <th>CÁMARA FREN.<br/>TIPO</th>
-            <th>VARILLA<br/>cm</th>
+            <th>DIBUJO</th>
+            <th>PRESIÓN</th>
+            <th>CÁMARA FREN.</th>
+            <th>VARILLA</th>
+          </tr>
+          <tr>
+            <th></th>
+            <th>mm</th>
+            <th>PSI</th>
+            <th>TIPO</th>
+            <th>cm</th>
           </tr>
         </thead>
         <tbody>
           <?php foreach ($numerosPie as $n):
             $ll = $llantaMap[$n] ?? null;
-            $inicioGrupo = \App\Validation\Nom068Formato::esInicioGrupoPieCamaraVarilla((int)$n, $tipoPieVar);
-            $spanGrupo = $inicioGrupo
-                ? \App\Validation\Nom068Formato::rowspanGrupoPieCamaraVarilla((int)$n, $maxPieN, $tipoPieVar)
-                : 1;
-            $varillaTxt = $inicioGrupo ? $getVarillaDisplay((int)$n, $varillas, $varillasRes) : '';
-            $camTxt = $inicioGrupo ? $camaraFrenoPieTxt($inspeccion, (int)$n) : '';
+            $parLab = \App\Validation\Nom068Formato::parVarillaParaLlanta((int)$n, $tipoPieVar);
+            $nGrupo = str_contains($parLab, '-') ? (int)explode('-', $parLab, 2)[0] : (int)$n;
+            $varillaTxt = $getVarillaDisplay($nGrupo, $varillas, $varillasRes);
+            $camTxt = $camaraFrenoPieTxt($inspeccion, $nGrupo);
           ?>
           <tr>
             <td class="ll-num"><?= $n ?></td>
             <td><?= $ll && ($ll->profundidad_mm ?? '') !== '' ? h((string)$ll->profundidad_mm) : '' ?></td>
             <td><?= $ll && ($ll->presion_psi ?? '') !== '' ? h((string)$ll->presion_psi) : '' ?></td>
-            <?php if ($inicioGrupo) : ?>
-            <td<?= $spanGrupo > 1 ? ' rowspan="' . (int)$spanGrupo . '"' : '' ?> style="font-size:6.2pt;text-align:center;vertical-align:middle;"><?= $camTxt !== '' ? h($camTxt) : '' ?></td>
-            <td<?= $spanGrupo > 1 ? ' rowspan="' . (int)$spanGrupo . '"' : '' ?> style="font-size:5.8pt;text-align:center;vertical-align:middle;"><?= $varillaTxt !== '' ? h($varillaTxt) : '' ?></td>
-            <?php endif; ?>
+            <td style="font-size:6.2pt;text-align:center;"><?= $camTxt !== '' ? h($camTxt) : '' ?></td>
+            <td style="font-size:5.8pt;text-align:center;"><?= $varillaTxt !== '' ? h($varillaTxt) : '' ?></td>
           </tr>
           <?php endforeach; ?>
         </tbody>
@@ -1177,29 +1176,21 @@ $mostrarVolanteHolgura = false; // F-20 Dolly no tiene dirección
         </thead>
         <tbody>
           <?php foreach ($numerosPie as $n):
-            $inicioRin = \App\Validation\Nom068Formato::esInicioGrupoPieRines((int)$n, $tipoPieVar);
-            $spanRin = $inicioRin
-                ? \App\Validation\Nom068Formato::rowspanGrupoPieRines((int)$n, $maxPieN, $tipoPieVar)
-                : 1;
             $nRin = \App\Validation\Nom068Formato::llantaInicioGrupoPieRines((int)$n, $tipoPieVar);
-            $rin = $rinesByLlanta[$nRin] ?? ($rinesByLlanta[$n] ?? null);
-            if ($inicioRin && $spanRin > 1 && $rin === null) {
-                $nPar = $nRin + 1;
-                $rin = $rinesByLlanta[$nPar] ?? null;
+            $rin = $rinesByLlanta[(int)$n] ?? ($rinesByLlanta[$nRin] ?? null);
+            if ($rin === null) {
+                $rin = $rinesByLlanta[$nRin + 1] ?? null;
             }
             $maza = strtoupper((string)($rin->maza_cumple ?? ''));
-            $rsAttr = $spanRin > 1 ? ' rowspan="' . (int)$spanRin . '"' : '';
             $rsStyle = 'text-align:center;vertical-align:middle;';
           ?>
           <tr>
             <td class="ll-num"><?= $n ?></td>
-            <?php if ($inicioRin) : ?>
-            <td<?= $rsAttr ?> style="<?= $rsStyle ?>"><?= $rin && ($rin->num_sujetadores ?? '') !== '' && ($rin->num_sujetadores ?? null) !== null ? h((string)$rin->num_sujetadores) : '' ?></td>
-            <td<?= $rsAttr ?> style="<?= $rsStyle ?>"><?= $maza === 'CUMPLE' ? '✓' : ($maza === 'NO CUMPLE' ? 'NO' : '') ?></td>
-            <td<?= $rsAttr ?> style="<?= $rsStyle ?>"><?= $maza === 'CUMPLE' ? 'NO' : ($maza === 'NO CUMPLE' ? '✓' : '') ?></td>
-            <td<?= $rsAttr ?> style="<?= $rsStyle ?>">✓</td><!-- MAZA BUEN ESTADO: regla fija -->
-            <td<?= $rsAttr ?> style="<?= $rsStyle ?>"><?= $rin ? h($pdfSymLl($rin->balero_cumple ?? null)) : '' ?></td>
-            <?php endif; ?>
+            <td style="<?= $rsStyle ?>"><?= $rin && ($rin->num_sujetadores ?? '') !== '' && ($rin->num_sujetadores ?? null) !== null ? h((string)$rin->num_sujetadores) : '' ?></td>
+            <td style="<?= $rsStyle ?>"><?= $maza === 'CUMPLE' ? '✓' : ($maza === 'NO CUMPLE' ? 'NO' : '') ?></td>
+            <td style="<?= $rsStyle ?>"><?= $maza === 'CUMPLE' ? 'NO' : ($maza === 'NO CUMPLE' ? '✓' : '') ?></td>
+            <td style="<?= $rsStyle ?>"><?= $rin ? '✓' : '' ?></td>
+            <td style="<?= $rsStyle ?>"><?= $rin ? h($pdfSymLl($rin->balero_cumple ?? null)) : '' ?></td>
           </tr>
           <?php endforeach; ?>
         </tbody>

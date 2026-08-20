@@ -31,8 +31,10 @@ final class F20ListaPdfValidador
         'DOLLY',
         'SI CUENTA',
         'LLANTA 1/2',
+        'LLANTA 3/4',
         'LLANTA 5/6',
         'LLANTA 7/8',
+        'RIN 1/2',
         'RIN 3/4',
         'VALVULA DE PROTECCION DE PRESION 65',
         'FUGAS DEL SISTEMA DE AIRE',
@@ -74,16 +76,14 @@ final class F20ListaPdfValidador
         }
         $esD1 = $tipo === 'D1';
         $pieEsperado = $esD1 ? 4 : 8;
-        $filasLlantaEsperadas = $esD1 ? 14 : 21; // D1: 2×7; D2: 3×7
+        $filasLlantaEsperadas = $esD1 ? 14 : 28; // D1: 2×7; D2: 4×7 (1/2, 3/4, 5/6, 7/8)
 
         $bloques = self::BLOQUES;
         if ($esD1) {
             $bloques = array_values(array_filter(
                 $bloques,
-                static fn (string $b): bool => !in_array($b, ['LLANTA 5/6', 'LLANTA 7/8', 'RIN 3/4'], true)
+                static fn (string $b): bool => !in_array($b, ['LLANTA 5/6', 'LLANTA 7/8'], true)
             ));
-            $bloques[] = 'LLANTA 3/4';
-            $bloques[] = 'RIN 1/2';
         }
 
         $hallazgos = [];
@@ -152,7 +152,7 @@ final class F20ListaPdfValidador
                 $filas === $filasLlantaEsperadas,
                 $esD1
                     ? "D1 LLANTAS debe tener 14 filas (2×7); tiene {$filas}"
-                    : "LLANTAS debe tener 21 filas (3×7); tiene {$filas}"
+                    : "LLANTAS debe tener 28 filas (4×7); tiene {$filas}"
             );
         } else {
             $hallazgos[] = self::check('llantas.filas', false, 'No se encontró sección LLANTAS');
