@@ -273,7 +273,7 @@ if (!$esEdicion && $folioTipoIni === '' && $folioEsperadoFormulario !== null) {
           <span id="cesdia-horario-candado-msg"></span>
         </div>
         <p id="cesdia-horario-duracion-msg" class="cesdia-field-error" style="display:none;margin:8px 0 0">
-          La hora de fin debe ser exactamente 30 minutos después de la hora de inicio.
+          La hora de fin debe ser posterior a la hora de inicio.
         </p>
         <p id="cesdia-horario-ocupados-hint" class="cesdia-horario-hint" style="display:none;margin:8px 0 0;font-size:12px;color:var(--gmuted)"></p>
       </div>
@@ -759,21 +759,17 @@ echo $this->element($armador, [
     function evaluarDuracion() {
       var ini = horaASegundos(inpIni.value);
       var fin = horaASegundos(inpFin.value);
-      var cruzamedia = ini !== null && (ini + DURACION_SEG) >= 24 * 3600;
-      var ok = !cruzamedia && ini !== null && fin !== null && fin === ini + DURACION_SEG;
       var pendiente = ini === null || fin === null;
+      var ok = pendiente || fin > ini;
       if (msgDuracion) {
-        if (cruzamedia) {
-          msgDuracion.textContent = 'La hora de inicio no permite sumar 30 minutos en el mismo día.';
-          msgDuracion.style.display = 'block';
-        } else if (!pendiente && !ok) {
-          msgDuracion.textContent = 'La hora de fin debe ser exactamente 30 minutos después de la hora de inicio.';
+        if (!ok) {
+          msgDuracion.textContent = 'La hora de fin debe ser posterior a la hora de inicio.';
           msgDuracion.style.display = 'block';
         } else {
           msgDuracion.style.display = 'none';
         }
       }
-      window.cesdiaGuardarBloqueos.duracion = cruzamedia || (!pendiente && !ok);
+      window.cesdiaGuardarBloqueos.duracion = !ok;
       actualizarBtnGuardar();
     }
 
@@ -801,7 +797,7 @@ echo $this->element($armador, [
       if (b.folio) {
         btnGuardar.title = 'Folio duplicado: corrija el número de dictamen';
       } else if (b.duracion) {
-        btnGuardar.title = 'La hora de fin debe ser 30 minutos después de la hora de inicio';
+        btnGuardar.title = 'La hora de fin debe ser posterior a la hora de inicio';
       } else if (b.horario) {
         btnGuardar.title = 'Horario no disponible para este técnico';
       } else {

@@ -211,22 +211,6 @@ class InspeccionesTable extends Table
             ->notEmptyDate('fecha_inspeccion_ant', 'Indique la fecha de inspección anterior.')
             ->notEmptyString('hora_inicio', 'Indique la hora de inicio.')
             ->notEmptyString('hora_fin', 'Indique la hora de fin.')
-            ->add('hora_fin', 'duracion30Minutos', [
-                'rule' => function ($value, $context) {
-                    $ini = $context['data']['hora_inicio'] ?? null;
-                    if ($ini === null || $ini === '' || $value === null || $value === '') {
-                        return true;
-                    }
-                    $t1 = $this->_horaASegundos($ini);
-                    $t2 = $this->_horaASegundos($value);
-                    if ($t1 === null || $t2 === null) {
-                        return true;
-                    }
-
-                    return $t2 === $t1 + 30 * 60;
-                },
-                'message' => 'La hora de fin debe ser exactamente 30 minutos después de la hora de inicio.',
-            ])
             ->inList('vehiculo_presentado', ['CARGADO', 'VACIO'], 'Seleccione si el vehículo se presentó cargado o vacío.')
             ->allowEmptyString('tipo_camara_frenado')
             ->inList('tipo_camara_frenado', array_keys(InspeccionMexico::TIPOS_CAMARA_FRENADO), 'Tipo de cámara no válido.', function ($context) {
@@ -369,12 +353,12 @@ class InspeccionesTable extends Table
                     return true;
                 }
 
-                return $t2 === $t1 + 30 * 60;
+                return $t2 > $t1;
             },
             'horasCoherentes',
             [
                 'errorField' => 'hora_fin',
-                'message' => 'La hora de fin debe ser exactamente 30 minutos después de la hora de inicio.',
+                'message' => 'La hora de fin debe ser posterior a la hora de inicio.',
             ]
         );
 
