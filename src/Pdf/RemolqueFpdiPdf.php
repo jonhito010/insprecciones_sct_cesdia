@@ -105,6 +105,8 @@ final class RemolqueFpdiPdf
     /** Bloque 2: hora inicio/fin 3 mm hacia abajo y 2 mm a la derecha. */
     private const BLOQUE2_HORAS_BAJA_Y_PT = 3.0 * 72.0 / 25.4;
     private const BLOQUE2_HORAS_DX_PT = 2.0 * 72.0 / 25.4;
+    /** Bloque 2: hora inicio/fin 4 mm hacia arriba. */
+    private const BLOQUE2_HORAS_SUBE_Y_PT = -4.0 * 72.0 / 25.4;
     /** Bloque 2: domicilio 3 mm hacia abajo. */
     private const BLOQUE2_DOMICILIO_BAJA_Y_PT = 3.0 * 72.0 / 25.4;
     /** Bloque 2: CP 4 mm a la derecha. */
@@ -114,8 +116,16 @@ final class RemolqueFpdiPdf
     /** Bloque 2: firma 1 cm abajo y 2 cm a la derecha. */
     private const BLOQUE2_FIRMA_BAJA_Y_PT = 10.0 * 72.0 / 25.4;
     private const BLOQUE2_FIRMA_DX_PT = 20.0 * 72.0 / 25.4;
+    /** Bloque 2: firma 4 mm arriba y 4 mm a la derecha. */
+    private const BLOQUE2_FIRMA_SUBE_Y_PT = -4.0 * 72.0 / 25.4;
+    private const BLOQUE2_FIRMA_DX2_PT = 4.0 * 72.0 / 25.4;
     /** Bloque 3: primera línea 1 mm hacia abajo. */
     private const BLOQUE3_PRIMERA_LINEA_BAJA_Y_PT = 1.0 * 72.0 / 25.4;
+    /** Bloque 3: hora inicio/fin 2 mm hacia abajo y 1 mm a la derecha. */
+    private const BLOQUE3_HORAS_BAJA_Y_PT = 2.0 * 72.0 / 25.4;
+    private const BLOQUE3_HORAS_DX_PT = 1.0 * 72.0 / 25.4;
+    /** Bloque 3: domicilio 2 mm hacia abajo. */
+    private const BLOQUE3_DOMICILIO_BAJA_Y_PT = 2.0 * 72.0 / 25.4;
     /** Bloque 3: firma 4 mm abajo, 4 mm a la derecha y más grande. */
     private const BLOQUE3_FIRMA_BAJA_Y_PT = 4.0 * 72.0 / 25.4;
     private const BLOQUE3_FIRMA_DX_PT = 4.0 * 72.0 / 25.4;
@@ -413,6 +423,7 @@ final class RemolqueFpdiPdf
             if (in_array($campo, self::BLOQUE1_HORAS, true)) {
                 $pos['x'] += self::BLOQUE2_HORAS_DX_PT;
                 $pos['y'] += self::BLOQUE2_HORAS_BAJA_Y_PT;
+                $pos['y'] += self::BLOQUE2_HORAS_SUBE_Y_PT;
             }
             if ($campo === 'propietario_calle') {
                 $pos['y'] += self::BLOQUE2_DOMICILIO_BAJA_Y_PT;
@@ -425,13 +436,22 @@ final class RemolqueFpdiPdf
             }
             if ($campo === 'firma') {
                 $pos['x'] += self::BLOQUE2_FIRMA_DX_PT;
+                $pos['x'] += self::BLOQUE2_FIRMA_DX2_PT;
                 $pos['y'] += self::BLOQUE2_FIRMA_BAJA_Y_PT;
+                $pos['y'] += self::BLOQUE2_FIRMA_SUBE_Y_PT;
                 $pos['w'] *= self::BLOQUE1_FIRMA_ESCALA;
                 $pos['h'] *= self::BLOQUE1_FIRMA_ESCALA;
             }
         } elseif ($bloque === 2) {
             if (in_array($campo, self::BLOQUE1_PRIMERA_LINEA, true)) {
                 $pos['y'] += self::BLOQUE3_PRIMERA_LINEA_BAJA_Y_PT;
+            }
+            if (in_array($campo, self::BLOQUE1_HORAS, true)) {
+                $pos['x'] += self::BLOQUE3_HORAS_DX_PT;
+                $pos['y'] += self::BLOQUE3_HORAS_BAJA_Y_PT;
+            }
+            if ($campo === 'propietario_calle') {
+                $pos['y'] += self::BLOQUE3_DOMICILIO_BAJA_Y_PT;
             }
             if ($campo === 'firma') {
                 $pos['x'] += self::BLOQUE3_FIRMA_DX_PT;
