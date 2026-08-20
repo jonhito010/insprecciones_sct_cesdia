@@ -75,22 +75,57 @@ class VehiculosTable extends Table
     }
 
     /**
+     * Tipo de servicio SCT (única lista, federal o privado).
+     * El Excel exporta la sigla: CG, P, T, PQ, MP, M, FV, G.
+     *
+     * @return array<string, string> valor guardado => etiqueta
+     */
+    public static function opcionesTipoServicio(): array
+    {
+        return [
+            'CARGA GENERAL' => 'CG — Carga general',
+            'PASAJE' => 'P — Pasaje',
+            'TURISMO' => 'T — Turismo',
+            'PAQUETERIA' => 'PQ — Paquetería',
+            'MATERIALES PELIGROSOS' => 'MP — Carga especializada (materiales peligrosos)',
+            'AUTOMOVILES SIN RODAR' => 'M — Carga especializada (automóviles sin rodar)',
+            'FONDOS Y VALORES' => 'FV — Carga especializada (fondos y valores)',
+            'GRUAS DE ARRASTRE Y/O SALVAMENTO' => 'G — Grúas de arrastre y/o salvamento',
+        ];
+    }
+
+    /**
+     * Códigos antiguos en BD; se aceptan al editar, ya no se ofrecen en el select.
+     *
+     * @return list<string>
+     */
+    public static function codigosTipoServicioHistoricos(): array
+    {
+        return [
+            'PAQUETERIA Y MENSAJERIA',
+            'ARRENDAMIENTO',
+            'CARGA ESPECIALIZADA',
+            'AUTOTRANSPORTE FEDERAL',
+            'AUTOMOVILES SIN RODAR TIPO GONDOLA',
+        ];
+    }
+
+    /**
+     * @return list<string>
+     */
+    public static function codigosTipoServicio(): array
+    {
+        return array_keys(self::opcionesTipoServicio());
+    }
+
+    /**
      * Tipo de servicio cuando la modalidad es autotransporte federal.
      *
      * @return array<string, string> valor guardado => etiqueta
      */
     public static function opcionesTipoServicioFederal(): array
     {
-        return [
-            'CARGA GENERAL' => 'Carga general',
-            'PAQUETERIA Y MENSAJERIA' => 'Paquetería y mensajería',
-            'ARRENDAMIENTO' => 'Arrendamiento',
-            'CARGA ESPECIALIZADA' => 'Carga especializada',
-            'PASAJE' => 'Pasaje',
-            'TURISMO' => 'Turismo',
-            // Valor histórico en BD; se mantiene para no invalidar registros previos.
-            'AUTOTRANSPORTE FEDERAL' => 'Autotransporte federal',
-        ];
+        return self::opcionesTipoServicio();
     }
 
     /**
@@ -98,7 +133,7 @@ class VehiculosTable extends Table
      */
     public static function codigosTipoServicioFederal(): array
     {
-        return array_keys(self::opcionesTipoServicioFederal());
+        return self::codigosTipoServicio();
     }
 
     /**
@@ -108,12 +143,7 @@ class VehiculosTable extends Table
      */
     public static function opcionesTipoServicioTransportePrivado(): array
     {
-        return [
-            'CARGA GENERAL' => 'Carga general',
-            'CARGA ESPECIALIZADA' => 'Carga especializada',
-            'PASAJE' => 'Pasaje',
-            'TURISMO' => 'Turismo',
-        ];
+        return self::opcionesTipoServicio();
     }
 
     /**
@@ -121,7 +151,7 @@ class VehiculosTable extends Table
      */
     public static function codigosTipoServicioTransportePrivado(): array
     {
-        return array_keys(self::opcionesTipoServicioTransportePrivado());
+        return self::codigosTipoServicio();
     }
 
     /**
@@ -318,26 +348,18 @@ PHP;
             })
             ->add('tipo_servicio', 'coherenteModalidadTipoServicio', [
                 'rule' => function ($value, $context) {
-                    $mod = $context['data']['modalidad'] ?? '';
                     $v = trim((string)$value);
-                    if ($mod === self::MODALIDAD_AUTOTRANSPORTE_FEDERAL) {
-                        if ($v === '') {
-                            return true;
-                        }
-
-                        return in_array($v, self::codigosTipoServicioFederal(), true);
+                    if ($v === '') {
+                        return true;
                     }
-                    if ($mod === self::MODALIDAD_TRANSPORTE_PRIVADO) {
-                        if ($v === '') {
-                            return true;
-                        }
+                    $permitidos = array_merge(
+                        self::codigosTipoServicio(),
+                        self::codigosTipoServicioHistoricos()
+                    );
 
-                        return in_array($v, self::codigosTipoServicioTransportePrivado(), true);
-                    }
-
-                    return true;
+                    return in_array($v, $permitidos, true);
                 },
-                'message' => 'Según la modalidad: en transporte federal o privado elija un tipo de servicio de la lista (incluye pasaje y turismo).',
+                'message' => 'Elija un tipo de servicio de la lista SCT (CG, P, T, PQ, MP, M, FV o G).',
             ]);
 
         $schema = $this->getSchema();

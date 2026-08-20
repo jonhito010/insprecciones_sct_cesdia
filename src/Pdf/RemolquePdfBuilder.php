@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace App\Pdf;
 
+use App\Export\SctExcelExporter;
 use Cake\Chronos\ChronosDate;
 use Cake\Datasource\EntityInterface;
 use DateTimeInterface;
@@ -126,7 +127,7 @@ final class RemolquePdfBuilder
             'presentado_ins' => $presentado,
             'tipo_vehiculo' => $tipo,
             'modalidad' => $modalidad,
-            'tipo_servicio' => $tipoServicio,
+            'tipo_servicio' => SctExcelExporter::abreviaturaTipoServicio($tipoServicio),
             'fecha_inspeccion_txt' => $fechaTxt,
             'fecha_anterior' => $fechaAntTxt,
             'hora_inicio' => $hi,

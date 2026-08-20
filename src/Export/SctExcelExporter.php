@@ -74,7 +74,7 @@ final class SctExcelExporter
         $sheet->setCellValue([5, $row], $odometro);
         $sheet->setCellValue([6, $row], $prop !== null ? (string)($prop->nombre_razon_social ?? '') : '');
         $sheet->setCellValue([7, $row], $prop !== null ? (string)($prop->rfc ?? '') : '');
-        $sheet->setCellValue([8, $row], static::codigoTipoVehiculo($veh !== null ? ($veh->tipo_vehiculo ?? null) : null));
+        $sheet->setCellValue([8, $row], static::codigoTipoVehiculoExcel($veh !== null ? ($veh->tipo_vehiculo ?? null) : null));
         $sheet->setCellValue([9, $row], $veh !== null ? (string)($veh->niv ?? '') : '');
         $anio = ($veh !== null && $veh->get('anio') !== null && $veh->get('anio') !== '') ? (string)$veh->get('anio') : '';
         $sheet->setCellValue([10, $row], $anio);
@@ -193,35 +193,74 @@ final class SctExcelExporter
         return strtoupper(mb_substr($tv, 0, 12));
     }
 
+    /**
+     * Código SCT en Excel: C2L / C2L6 se reportan como C2.
+     */
+    private static function codigoTipoVehiculoExcel(?string $tv): string
+    {
+        $raw = strtoupper(str_replace(['-', ' '], '', trim((string)$tv)));
+        if ($raw === 'C2L' || $raw === 'C2L6' || str_starts_with($raw, 'C2L')) {
+            return 'C2';
+        }
+
+        return static::codigoTipoVehiculo($tv);
+    }
+
+    /**
+     * Siglas oficiales SCT: CG, P, T, PQ, MP, M, FV, G.
+     */
     public static function abreviaturaTipoServicio(?string $ts): string
     {
         if ($ts === null || $ts === '') {
             return '';
         }
         $n = mb_strtoupper(trim($ts));
-        $exact = [
-            'CARGA GENERAL' => 'CG',
-            'CARGA ESPECIALIZADA' => 'M',
-            'PAQUETERIA Y MENSAJERIA' => 'PQ',
-            'AUTOTRANSPORTE FEDERAL' => 'AF',
-            'ARRENDAMIENTO' => 'AR',
-            'TRANSPORTE PRIVADO' => 'TP',
-        ];
-        if (isset($exact[$n])) {
-            return $exact[$n];
+        $n = strtr($n, [
+            'Á' => 'A', 'É' => 'E', 'Í' => 'I', 'Ó' => 'O', 'Ú' => 'U',
+            'Ü' => 'U',
+        ]);
+
+        $oficiales = ['CG', 'P', 'T', 'PQ', 'MP', 'M', 'FV', 'G'];
+        if (in_array($n, $oficiales, true)) {
+            return $n;
         }
-        $map = [
+
+        $exact = [
             'CARGA GENERAL' => 'CG',
             'PASAJE' => 'P',
             'PASAJEROS' => 'P',
             'TURISMO' => 'T',
-            'PAQUETERÍA' => 'PQ',
             'PAQUETERIA' => 'PQ',
+            'PAQUETERIA Y MENSAJERIA' => 'PQ',
             'MATERIALES PELIGROSOS' => 'MP',
-            'CARGA ESPECIALIZADA' => 'M',
+            'CARGA ESPECIALIZADA (MATERIALES PELIGROSOS)' => 'MP',
+            'AUTOMOVILES SIN RODAR' => 'M',
+            'AUTOMOVILES SIN RODAR TIPO GONDOLA' => 'M',
+            'CARGA ESPECIALIZADA (AUTOMOVILES SIN RODAR)' => 'M',
+            'CARGA ESPECIALIZADA (AUTOMOVILES SI RODAR)' => 'M',
             'FONDOS Y VALORES' => 'FV',
-            'GRÚA' => 'G',
+            'CARGA ESPECIALIZADA (FONDOS Y VALORES)' => 'FV',
+            'GRUAS DE ARRASTRE Y/O SALVAMENTO' => 'G',
+            'GRUAS DE ARRASTRE' => 'G',
+            'CARGA ESPECIALIZADA' => 'M',
+        ];
+        if (isset($exact[$n])) {
+            return $exact[$n];
+        }
+
+        $map = [
+            'MATERIALES PELIGROSOS' => 'MP',
+            'FONDOS Y VALORES' => 'FV',
+            'AUTOMOVILES SIN RODAR' => 'M',
+            'AUTOMOVILES SI RODAR' => 'M',
+            'GRUAS DE ARRASTRE' => 'G',
             'GRUA' => 'G',
+            'PAQUETER' => 'PQ',
+            'CARGA GENERAL' => 'CG',
+            'PASAJE' => 'P',
+            'PASAJEROS' => 'P',
+            'TURISMO' => 'T',
+            'CARGA ESPECIALIZADA' => 'M',
         ];
         foreach ($map as $needle => $code) {
             if (str_contains($n, $needle)) {
@@ -229,7 +268,7 @@ final class SctExcelExporter
             }
         }
 
-        return mb_substr($ts, 0, 40);
+        return '';
     }
 
     private static function letraVehiculoPresentado(?string $v): string

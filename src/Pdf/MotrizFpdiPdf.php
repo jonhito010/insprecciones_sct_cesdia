@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace App\Pdf;
 
+use App\Export\SctExcelExporter;
 use Cake\Datasource\EntityInterface;
 use setasign\Fpdi\Fpdi;
 
@@ -682,24 +683,9 @@ final class MotrizFpdiPdf
         return mb_substr($t, 0, 2, 'UTF-8');
     }
 
-    /** Abreviatura corta para el recuadro de tipo de servicio (p. ej. CG). */
+    /** Abreviatura corta para el recuadro de tipo de servicio (CG, P, T, PQ, MP, M, FV, G). */
     private static function abrevTipoServicio(string $valor): string
     {
-        if ($valor === '') {
-            return '';
-        }
-        $map = [
-            'CARGA GENERAL' => 'CG',
-            'CARGA ESPECIALIZADA' => 'CE',
-            'PASAJE' => 'PA',
-            'PASAJEROS' => 'PA',
-            'TURISMO' => 'TU',
-        ];
-        $up = strtoupper($valor);
-
-        return $map[$up] ?? implode('', array_map(
-            static fn (string $w): string => mb_substr($w, 0, 1, 'UTF-8'),
-            preg_split('/\s+/', $up, -1, PREG_SPLIT_NO_EMPTY) ?: []
-        ));
+        return SctExcelExporter::abreviaturaTipoServicio($valor);
     }
 }
