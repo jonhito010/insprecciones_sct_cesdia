@@ -194,16 +194,30 @@ final class SctExcelExporter
     }
 
     /**
-     * Código SCT en Excel: C2L / C2L6 se reportan como C2.
+     * Código SCT en Excel: C2L / C2L6 se reportan como C2, con espacio (C 2).
      */
     private static function codigoTipoVehiculoExcel(?string $tv): string
     {
         $raw = strtoupper(str_replace(['-', ' '], '', trim((string)$tv)));
         if ($raw === 'C2L' || $raw === 'C2L6' || str_starts_with($raw, 'C2L')) {
-            return 'C2';
+            return 'C 2';
         }
 
-        return static::codigoTipoVehiculo($tv);
+        return static::codigoTipoVehiculoConEspacio(static::codigoTipoVehiculo($tv));
+    }
+
+    /** C2 → C 2, T3 → T 3, B2 → B 2. */
+    private static function codigoTipoVehiculoConEspacio(string $codigo): string
+    {
+        $codigo = strtoupper(trim($codigo));
+        if ($codigo === '') {
+            return '';
+        }
+        if (preg_match('/^([A-Z]+)(\d+[A-Z0-9]*)$/u', $codigo, $m)) {
+            return $m[1] . ' ' . $m[2];
+        }
+
+        return $codigo;
     }
 
     /**
