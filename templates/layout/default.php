@@ -38,7 +38,7 @@ $cesdiaFaviconType = substr($cesdiaLogoFile, -4) === '.svg' ? 'image/svg+xml' : 
 $sbLogoImgClass = 'sb-logo-img' . (substr($cesdiaLogoFile, -4) === '.svg' ? ' sb-logo-img--mono' : '');
 ?>
 <!DOCTYPE html>
-<html lang="es">
+<html lang="es-MX">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">

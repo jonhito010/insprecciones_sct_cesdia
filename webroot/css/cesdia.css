@@ -1693,11 +1693,20 @@ button.cesdia-table-action--delete:hover {
 .cesdia-alert-warning { background: var(--amber-bg); color: var(--amber); border: 1px solid #f5d98a; }
 .cesdia-alert-info    { background: var(--blue-bg); color: var(--blue); border: 1px solid #85b7eb; }
 
-.cesdia-horario-candado {
+.cesdia-hora24 {
   display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  margin-top: 4px;
+  align-items: center;
+  gap: 6px;
+  max-width: 11.5rem;
+}
+.cesdia-hora24__sel {
+  flex: 1;
+  min-width: 0;
+  font-variant-numeric: tabular-nums;
+}
+.cesdia-hora24__sep {
+  font-weight: 700;
+  color: var(--gmuted);
 }
 .cesdia-horario-candado__icon {
   flex-shrink: 0;

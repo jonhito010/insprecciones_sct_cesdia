@@ -70,6 +70,19 @@ $esModalidadFederalInicial = $modIni === $modalidadFederal;
 $esModalidadPrivInicial = $modIni === $modalidadPrivado;
 // Campos con valores sugeridos (solo nueva inspección): el checkbox los vacía vía JS.
 $df = $esEdicion ? '' : ' cesdia-default-field';
+$cesdiaPartesHora = static function ($hora, int $hDef, int $mDef): array {
+    if ($hora instanceof \DateTimeInterface) {
+        return [(int)$hora->format('H'), (int)$hora->format('i')];
+    }
+    $s = trim((string)$hora);
+    if ($s !== '' && preg_match('/^(\d{1,2}):(\d{2})/', $s, $mh)) {
+        return [(int)$mh[1], (int)$mh[2]];
+    }
+
+    return [$hDef, $mDef];
+};
+[$horaIniH, $horaIniM] = $cesdiaPartesHora($inspeccion->hora_inicio ?? null, 9, 0);
+[$horaFinH, $horaFinM] = $cesdiaPartesHora($inspeccion->hora_fin ?? null, 9, 30);
 $slotsPorTipoJson = [];
 foreach (TipoVehiculoRequisitos::codigos() as $_codTipo) {
     $slotsPorTipoJson[$_codTipo] = TipoVehiculoRequisitos::slotsParaTipo($_codTipo);
@@ -252,20 +265,48 @@ if (!$esEdicion && $folioTipoIni === '' && $folioEsperadoFormulario !== null) {
         ]) ?>
       </div>
       <div class="cesdia-form-group">
-        <?= $this->Form->control('hora_inicio', [
-          'label' => ['text' => 'Hora inicio', 'class' => 'cesdia-label'],
-          'type'  => 'time',
-          'class' => 'cesdia-input cesdia-horario-campo' . $df,
+        <label class="cesdia-label" for="cesdia-hora-inicio-h">Hora inicio (24 h)</label>
+        <?= $this->Form->hidden('hora_inicio', [
           'id' => 'cesdia-hora-inicio',
+          'class' => 'cesdia-horario-campo',
+          'value' => sprintf('%02d:%02d:00', $horaIniH, $horaIniM),
         ]) ?>
+        <div class="cesdia-hora24">
+          <select id="cesdia-hora-inicio-h" class="cesdia-select cesdia-hora24__sel<?= $df ?>" autocomplete="off">
+            <?php for ($h = 0; $h <= 23; $h++) : ?>
+              <option value="<?= sprintf('%02d', $h) ?>"<?= $h === $horaIniH ? ' selected' : '' ?>><?= sprintf('%02d', $h) ?></option>
+            <?php endfor; ?>
+          </select>
+          <span class="cesdia-hora24__sep" aria-hidden="true">:</span>
+          <select id="cesdia-hora-inicio-m" class="cesdia-select cesdia-hora24__sel<?= $df ?>" autocomplete="off">
+            <?php for ($mi = 0; $mi <= 59; $mi++) : ?>
+              <option value="<?= sprintf('%02d', $mi) ?>"<?= $mi === $horaIniM ? ' selected' : '' ?>><?= sprintf('%02d', $mi) ?></option>
+            <?php endfor; ?>
+          </select>
+        </div>
+        <?= $this->Form->error('hora_inicio') ?>
       </div>
       <div class="cesdia-form-group">
-        <?= $this->Form->control('hora_fin', [
-          'label' => ['text' => 'Hora fin', 'class' => 'cesdia-label'],
-          'type'  => 'time',
-          'class' => 'cesdia-input cesdia-horario-campo' . $df,
+        <label class="cesdia-label" for="cesdia-hora-fin-h">Hora fin (24 h)</label>
+        <?= $this->Form->hidden('hora_fin', [
           'id' => 'cesdia-hora-fin',
+          'class' => 'cesdia-horario-campo',
+          'value' => sprintf('%02d:%02d:00', $horaFinH, $horaFinM),
         ]) ?>
+        <div class="cesdia-hora24">
+          <select id="cesdia-hora-fin-h" class="cesdia-select cesdia-hora24__sel<?= $df ?>" autocomplete="off">
+            <?php for ($h = 0; $h <= 23; $h++) : ?>
+              <option value="<?= sprintf('%02d', $h) ?>"<?= $h === $horaFinH ? ' selected' : '' ?>><?= sprintf('%02d', $h) ?></option>
+            <?php endfor; ?>
+          </select>
+          <span class="cesdia-hora24__sep" aria-hidden="true">:</span>
+          <select id="cesdia-hora-fin-m" class="cesdia-select cesdia-hora24__sel<?= $df ?>" autocomplete="off">
+            <?php for ($mi = 0; $mi <= 59; $mi++) : ?>
+              <option value="<?= sprintf('%02d', $mi) ?>"<?= $mi === $horaFinM ? ' selected' : '' ?>><?= sprintf('%02d', $mi) ?></option>
+            <?php endfor; ?>
+          </select>
+        </div>
+        <?= $this->Form->error('hora_fin') ?>
       </div>
       <div class="cesdia-form-group" style="grid-column:1/-1">
         <div id="cesdia-horario-candado-wrap" class="cesdia-alert cesdia-alert-danger cesdia-horario-candado" style="display:none" role="alert" aria-live="polite">
@@ -700,6 +741,10 @@ echo $this->element($armador, [
     var inpFecha = document.getElementById('cesdia-fecha-inspeccion');
     var inpIni = document.getElementById('cesdia-hora-inicio');
     var inpFin = document.getElementById('cesdia-hora-fin');
+    var selIniH = document.getElementById('cesdia-hora-inicio-h');
+    var selIniM = document.getElementById('cesdia-hora-inicio-m');
+    var selFinH = document.getElementById('cesdia-hora-fin-h');
+    var selFinM = document.getElementById('cesdia-hora-fin-m');
     var selTec = document.getElementById('cesdia-tecnico-id');
     var wrapCandado = document.getElementById('cesdia-horario-candado-wrap');
     var msgCandado = document.getElementById('cesdia-horario-candado-msg');
@@ -732,29 +777,17 @@ echo $this->element($armador, [
       return parseInt(p[1], 10) * 3600 + parseInt(p[2], 10) * 60;
     }
 
-    var DURACION_SEG = 30 * 60;
-
-    function segundosAHoraInput(seg) {
-      var h = Math.floor(seg / 3600);
-      var m = Math.floor((seg % 3600) / 60);
-      var hh = (h < 10 ? '0' : '') + h;
-      var mm = (m < 10 ? '0' : '') + m;
-      var muestraSeg = String(inpIni.value || '').split(':').length >= 3
-        || String(inpFin.value || '').split(':').length >= 3;
-      return muestraSeg ? (hh + ':' + mm + ':00') : (hh + ':' + mm);
-    }
-
-    function aplicarHoraFin30() {
-      var ini = horaASegundos(inpIni.value);
-      if (ini === null) {
+    function syncHora24(hid, selH, selM) {
+      if (!hid || !selH || !selM) {
         return;
       }
-      var finEsp = ini + DURACION_SEG;
-      if (finEsp >= 24 * 3600) {
-        return;
-      }
-      inpFin.value = segundosAHoraInput(finEsp);
+      hid.value = selH.value + ':' + selM.value + ':00';
     }
+
+    window.cesdiaSyncHoras24 = function () {
+      syncHora24(inpIni, selIniH, selIniM);
+      syncHora24(inpFin, selFinH, selFinM);
+    };
 
     function evaluarDuracion() {
       var ini = horaASegundos(inpIni.value);
@@ -884,11 +917,20 @@ echo $this->element($armador, [
       fetchTimer = window.setTimeout(cargarOcupados, 280);
     }
 
+    [selIniH, selIniM, selFinH, selFinM].forEach(function (el) {
+      if (!el) {
+        return;
+      }
+      el.addEventListener('change', function () {
+        if (typeof window.cesdiaSyncHoras24 === 'function') {
+          window.cesdiaSyncHoras24();
+        }
+        evaluarDuracion();
+        evaluarCandado();
+      });
+    });
     [inpFecha, inpIni, inpFin].forEach(function (el) {
       el.addEventListener('change', function () {
-        if (el === inpIni) {
-          aplicarHoraFin30();
-        }
         evaluarDuracion();
         evaluarCandado();
         if (el === inpFecha) {
@@ -896,9 +938,6 @@ echo $this->element($armador, [
         }
       });
       el.addEventListener('input', function () {
-        if (el === inpIni) {
-          aplicarHoraFin30();
-        }
         evaluarDuracion();
         evaluarCandado();
       });
@@ -910,6 +949,9 @@ echo $this->element($armador, [
     var formIns = inpFecha.closest('form');
     if (formIns) {
       formIns.addEventListener('submit', function (ev) {
+        if (typeof window.cesdiaSyncHoras24 === 'function') {
+          window.cesdiaSyncHoras24();
+        }
         evaluarDuracion();
         evaluarCandado();
         if (btnGuardar && btnGuardar.disabled) {
@@ -918,6 +960,9 @@ echo $this->element($armador, [
       });
     }
 
+    if (typeof window.cesdiaSyncHoras24 === 'function') {
+      window.cesdiaSyncHoras24();
+    }
     evaluarDuracion();
     programarCarga();
   });
@@ -937,6 +982,10 @@ echo $this->element($armador, [
       defaults = {};
       form.querySelectorAll('.cesdia-default-field').forEach(function (el) {
         if (el.type === 'hidden' && el.id !== 'cesdia-ts-hdn') {
+          return;
+        }
+        if (el.classList.contains('cesdia-hora24__sel') && el.id) {
+          defaults['#' + el.id] = el.value;
           return;
         }
         if (!el.name) {
@@ -962,13 +1011,15 @@ echo $this->element($armador, [
           el.value = '';
         }
       });
+      if (typeof window.cesdiaSyncHoras24 === 'function') {
+        window.cesdiaSyncHoras24();
+      }
       if (typeof window.cesdiaSyncTipoServicio === 'function') {
         window.cesdiaSyncTipoServicio();
       }
       if (typeof window.cesdiaMergeFolioDictamen === 'function') {
         window.cesdiaMergeFolioDictamen();
       }
-      // BUG-1: no tocar folio (ya no es default-field); si hubiera estado residual, revalidar.
       if (typeof window.cesdiaProgramarValidarFolio === 'function') {
         window.cesdiaProgramarValidarFolio();
       }
@@ -992,6 +1043,18 @@ echo $this->element($armador, [
           el.value = v;
         }
       });
+      Object.keys(defaults).forEach(function (name) {
+        if (name.charAt(0) !== '#') {
+          return;
+        }
+        var elHora = document.getElementById(name.slice(1));
+        if (elHora) {
+          elHora.value = defaults[name];
+        }
+      });
+      if (typeof window.cesdiaSyncHoras24 === 'function') {
+        window.cesdiaSyncHoras24();
+      }
       if (typeof window.cesdiaSyncTipoServicio === 'function') {
         window.cesdiaSyncTipoServicio();
       }
