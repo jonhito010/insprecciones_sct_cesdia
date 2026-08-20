@@ -45,6 +45,17 @@ final class RemolqueFpdiPdf
         'hora_inicio',
         'hora_fin',
     ];
+    /** Bloque 1: datos del propietario 5 mm hacia abajo. */
+    private const BLOQUE1_PROPIETARIO_BAJA_Y_PT = 5.0 * 72.0 / 25.4;
+    /** @var list<string> */
+    private const BLOQUE1_PROPIETARIO = [
+        'propietario_nombre',
+        'propietario_rfc',
+        'propietario_calle',
+        'propietario_loc',
+        'propietario_estado',
+        'propietario_cp',
+    ];
     /** Bloque 1: nombre / razón social 1.5 cm hacia arriba. */
     private const BLOQUE1_NOMBRE_SUBE_Y_PT = -15.0 * 72.0 / 25.4;
     /** Bloque 1: RFC 6 mm arriba y 2 mm a la izquierda. */
@@ -354,6 +365,9 @@ final class RemolqueFpdiPdf
             if (in_array($campo, self::BLOQUE1_HORAS, true)) {
                 $pos['x'] += self::BLOQUE1_HORAS_DX_PT;
                 $pos['y'] += self::BLOQUE1_HORAS_SUBE_Y_PT;
+            }
+            if (in_array($campo, self::BLOQUE1_PROPIETARIO, true)) {
+                $pos['y'] += self::BLOQUE1_PROPIETARIO_BAJA_Y_PT;
             }
             if ($campo === 'propietario_nombre') {
                 $pos['y'] += self::BLOQUE1_NOMBRE_SUBE_Y_PT;
