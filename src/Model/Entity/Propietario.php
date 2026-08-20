@@ -16,5 +16,6 @@ class Propietario extends Entity
         'codigo_postal' => true,
         'correo' => true,
         'telefono' => true,
+        'id' => true,
     ];
 }

@@ -42,6 +42,11 @@ return static function (RouteBuilder $routes): void {
             'action' => 'buscarMarca',
         ]);
 
+        $builder->connect('/inspecciones/buscar-propietario', [
+            'controller' => 'Inspecciones',
+            'action' => 'buscarPropietario',
+        ]);
+
         // Plantilla / PDF motriz: /inspecciones/html-motriz/{id} (no /inspecciones/{id}/html-motriz)
         $builder->connect('/inspecciones/html-motriz/{id}', [
             'controller' => 'Inspecciones',

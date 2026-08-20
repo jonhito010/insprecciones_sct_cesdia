@@ -349,6 +349,61 @@ class InspeccionesController extends AppController
     }
 
     /**
+     * Select2 · JSON: buscar propietarios para autocompletar el formulario de inspección.
+     * GET /inspecciones/buscar-propietario?q=texto
+     */
+    public function buscarPropietario(): Response
+    {
+        $this->request->allowMethod(['get']);
+        $q = trim((string)$this->request->getQuery('q'));
+        $tabla = $this->fetchTable('Propietarios');
+        $schema = $tabla->getSchema();
+        $query = $tabla->find()
+            ->orderByAsc('nombre_razon_social')
+            ->limit(40);
+        if ($q !== '') {
+            $like = '%' . str_replace(['%', '_'], ['\\%', '\\_'], $q) . '%';
+            $query->where([
+                'OR' => [
+                    'Propietarios.nombre_razon_social LIKE' => $like,
+                    'Propietarios.rfc LIKE' => $like,
+                ],
+            ]);
+        }
+
+        $results = [];
+        foreach ($query as $p) {
+            $nom = trim((string)($p->nombre_razon_social ?? ''));
+            $rfc = trim((string)($p->rfc ?? ''));
+            $text = $rfc !== '' ? $nom . ' · ' . $rfc : $nom;
+            $prop = [
+                'id' => (int)$p->id,
+                'nombre_razon_social' => $nom,
+                'rfc' => $rfc,
+                'calle_numero' => (string)($p->calle_numero ?? ''),
+                'municipio' => (string)($p->municipio ?? ''),
+                'estado' => (string)($p->estado ?? ''),
+                'codigo_postal' => (string)($p->codigo_postal ?? ''),
+            ];
+            if ($schema->hasColumn('correo')) {
+                $prop['correo'] = (string)($p->correo ?? '');
+            }
+            if ($schema->hasColumn('telefono')) {
+                $prop['telefono'] = (string)($p->telefono ?? '');
+            }
+            $results[] = [
+                'id' => (int)$p->id,
+                'text' => $text !== '' ? $text : ('#' . (int)$p->id),
+                'propietario' => $prop,
+            ];
+        }
+
+        return $this->response
+            ->withType('application/json')
+            ->withStringBody(json_encode(['results' => $results], JSON_UNESCAPED_UNICODE));
+    }
+
+    /**
      * @param array<string, mixed> $payload
      */
     private function _jsonMarca(array $payload, int $status = 200): Response
@@ -1365,6 +1420,14 @@ class InspeccionesController extends AppController
         }
         if (!isset($data['vehiculo']['propietario']) || !is_array($data['vehiculo']['propietario'])) {
             return [$data, null];
+        }
+        if (array_key_exists('id', $data['vehiculo']['propietario'])) {
+            $pid = (int)$data['vehiculo']['propietario']['id'];
+            if ($pid > 0) {
+                $data['vehiculo']['propietario']['id'] = $pid;
+            } else {
+                unset($data['vehiculo']['propietario']['id']);
+            }
         }
         if (!array_key_exists('codigo_postal', $data['vehiculo']['propietario'])) {
             return [$data, null];

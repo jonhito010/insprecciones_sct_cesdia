@@ -541,17 +541,42 @@ if (!$esEdicion && $folioTipoIni === '' && $folioEsperadoFormulario !== null) {
       <div class="sec-head"><span class="sec-head-title">Propietario</span></div>
       <div class="sec-body">
         <div class="cesdia-grid-3">
-          <div class="cesdia-form-group">
-            <?= $this->Form->control('vehiculo.propietario.nombre_razon_social', ['label' => ['text' => 'Nombre / Razón Social', 'class' => 'cesdia-label'], 'class' => 'cesdia-input', 'value' => $propietario ? ($propietario->nombre_razon_social ?? '') : '']) ?>
+          <div class="cesdia-form-group" style="grid-column:1/-1">
+            <label class="cesdia-label" for="cesdia-propietario-buscar">Buscar propietario</label>
+            <?php
+            $propIdActual = $propietario && !empty($propietario->id) ? (int)$propietario->id : 0;
+            $propTextoActual = '';
+            if ($propietario) {
+                $nAct = trim((string)($propietario->nombre_razon_social ?? ''));
+                $rAct = trim((string)($propietario->rfc ?? ''));
+                $propTextoActual = $rAct !== '' ? $nAct . ' · ' . $rAct : $nAct;
+            }
+            ?>
+            <?= $this->Form->hidden('vehiculo.propietario.id', [
+              'id' => 'cesdia-propietario-id',
+              'value' => $propIdActual > 0 ? $propIdActual : '',
+            ]) ?>
+            <select id="cesdia-propietario-buscar" class="cesdia-select" style="width:100%" autocomplete="off">
+              <option value=""></option>
+              <?php if ($propIdActual > 0 && $propTextoActual !== '') : ?>
+                <option value="<?= $propIdActual ?>" selected><?= h($propTextoActual) ?></option>
+              <?php endif; ?>
+            </select>
+            <p style="margin:.35rem 0 0;font-size:12px;color:var(--gmuted)">
+              Escriba nombre o RFC. Al elegir se llenan todos los datos. Si captura uno nuevo, deje la búsqueda vacía.
+            </p>
           </div>
           <div class="cesdia-form-group">
-            <?= $this->Form->control('vehiculo.propietario.rfc', ['label' => ['text' => 'RFC', 'class' => 'cesdia-label'], 'class' => 'cesdia-input', 'value' => $propietario ? ($propietario->rfc ?? '') : '']) ?>
+            <?= $this->Form->control('vehiculo.propietario.nombre_razon_social', ['label' => ['text' => 'Nombre / Razón Social', 'class' => 'cesdia-label'], 'class' => 'cesdia-input', 'id' => 'cesdia-prop-nombre', 'value' => $propietario ? ($propietario->nombre_razon_social ?? '') : '']) ?>
           </div>
           <div class="cesdia-form-group">
-            <?= $this->Form->control('vehiculo.propietario.calle_numero', ['label' => ['text' => 'Domicilio', 'class' => 'cesdia-label'], 'class' => 'cesdia-input', 'value' => $propietario ? ($propietario->calle_numero ?? '') : '']) ?>
+            <?= $this->Form->control('vehiculo.propietario.rfc', ['label' => ['text' => 'RFC', 'class' => 'cesdia-label'], 'class' => 'cesdia-input', 'id' => 'cesdia-prop-rfc', 'value' => $propietario ? ($propietario->rfc ?? '') : '']) ?>
           </div>
           <div class="cesdia-form-group">
-            <?= $this->Form->control('vehiculo.propietario.municipio', ['label' => ['text' => 'Municipio', 'class' => 'cesdia-label'], 'class' => 'cesdia-input', 'value' => $propietario ? ($propietario->municipio ?? '') : '']) ?>
+            <?= $this->Form->control('vehiculo.propietario.calle_numero', ['label' => ['text' => 'Domicilio', 'class' => 'cesdia-label'], 'class' => 'cesdia-input', 'id' => 'cesdia-prop-calle', 'value' => $propietario ? ($propietario->calle_numero ?? '') : '']) ?>
+          </div>
+          <div class="cesdia-form-group">
+            <?= $this->Form->control('vehiculo.propietario.municipio', ['label' => ['text' => 'Municipio', 'class' => 'cesdia-label'], 'class' => 'cesdia-input', 'id' => 'cesdia-prop-municipio', 'value' => $propietario ? ($propietario->municipio ?? '') : '']) ?>
           </div>
           <div class="cesdia-form-group">
             <?= $this->Form->control('vehiculo.propietario.estado', [
@@ -559,6 +584,7 @@ if (!$esEdicion && $folioTipoIni === '' && $folioEsperadoFormulario !== null) {
               'options' => $estadosOpts,
               'empty' => '-- Estado --',
               'class' => 'cesdia-select',
+              'id' => 'cesdia-prop-estado',
               'value' => $propietario ? ($propietario->estado ?? '') : '',
             ]) ?>
           </div>
@@ -585,6 +611,7 @@ if (!$esEdicion && $folioTipoIni === '' && $folioEsperadoFormulario !== null) {
               'type' => 'email',
               'label' => ['text' => 'Correo electrónico', 'class' => 'cesdia-label'],
               'class' => 'cesdia-input',
+              'id' => 'cesdia-prop-correo',
               'placeholder' => 'ejemplo@dominio.com',
               'value' => $propietario ? ($propietario->correo ?? '') : '',
             ]) ?>
@@ -596,6 +623,7 @@ if (!$esEdicion && $folioTipoIni === '' && $folioEsperadoFormulario !== null) {
               'type' => 'tel',
               'label' => ['text' => 'Teléfono (10 dígitos)', 'class' => 'cesdia-label'],
               'class' => 'cesdia-input',
+              'id' => 'cesdia-prop-telefono',
               'placeholder' => 'Ej: 5512345678 o 525512345678',
               'value' => $propietario ? ($propietario->telefono ?? '') : '',
             ]) ?>
@@ -2387,8 +2415,84 @@ echo $this->element($armador, [
   });
 })();
 </script>
+<script>
+(function () {
+  var urlProp = <?= json_encode($this->Url->build('/inspecciones/buscar-propietario'), JSON_HEX_TAG | JSON_HEX_APOS | JSON_UNESCAPED_UNICODE) ?>;
+  var $buscar = $('#cesdia-propietario-buscar');
+  if (!$buscar.length || typeof $buscar.select2 !== 'function') {
+    return;
+  }
+  var hidId = document.getElementById('cesdia-propietario-id');
+
+  function setCampo(id, val) {
+    var el = document.getElementById(id);
+    if (!el) {
+      return;
+    }
+    el.value = val == null ? '' : String(val);
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+    el.dispatchEvent(new Event('change', { bubbles: true }));
+  }
+
+  function llenarPropietario(p) {
+    if (!p) {
+      return;
+    }
+    if (hidId) {
+      hidId.value = p.id ? String(p.id) : '';
+    }
+    setCampo('cesdia-prop-nombre', p.nombre_razon_social);
+    setCampo('cesdia-prop-rfc', p.rfc);
+    setCampo('cesdia-prop-calle', p.calle_numero);
+    setCampo('cesdia-prop-municipio', p.municipio);
+    setCampo('cesdia-prop-estado', p.estado);
+    setCampo('cesdia-codigo-postal', p.codigo_postal);
+    setCampo('cesdia-prop-correo', p.correo);
+    setCampo('cesdia-prop-telefono', p.telefono);
+  }
+
+  $buscar.select2({
+    width: '100%',
+    placeholder: 'Escriba nombre o RFC para autocompletar…',
+    allowClear: true,
+    minimumInputLength: 0,
+    language: {
+      inputTooShort: function () { return 'Escriba para buscar'; },
+      searching: function () { return 'Buscando…'; },
+      noResults: function () { return 'Sin resultados'; },
+      errorLoading: function () { return 'Error al cargar'; },
+      removeAllItems: function () { return 'Quitar'; }
+    },
+    ajax: {
+      url: urlProp,
+      dataType: 'json',
+      delay: 250,
+      data: function (params) {
+        return { q: params.term || '' };
+      },
+      processResults: function (data) {
+        return { results: (data && data.results) ? data.results : [] };
+      },
+      cache: true
+    }
+  });
+
+  $buscar.on('select2:select', function (e) {
+    var d = e.params && e.params.data ? e.params.data : null;
+    if (d && d.propietario) {
+      llenarPropietario(d.propietario);
+    }
+  });
+  $buscar.on('select2:clear', function () {
+    if (hidId) {
+      hidId.value = '';
+    }
+  });
+})();
+</script>
 <style>
-.cesdia-select2-marca + .select2-container {
+.cesdia-select2-marca + .select2-container,
+#cesdia-propietario-buscar + .select2-container {
   width: 100% !important;
 }
 .select2-container--default .select2-selection--single {
