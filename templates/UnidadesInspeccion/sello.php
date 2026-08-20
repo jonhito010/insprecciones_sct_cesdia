@@ -72,7 +72,7 @@ $puedeGuardar = !empty($selloEstado['columna_ok']) && !empty($selloEstado['escri
 <div role="status" class="cesdia-firma-status-banda cesdia-firma-status-banda--pendiente">
   <strong>Todavía no hay sello guardado</strong>
   <p class="cesdia-firma-status-banda__sub cesdia-firma-status-banda__sub--p">
-    Elija un PNG o JPG y pulse <strong>Guardar sello</strong>. Se mostrará en el PDF de lista de inspección.
+    Elija un PNG, JPG, WEBP o GIF y pulse <strong>Guardar sello</strong>. Se mostrará en el PDF de lista de inspección.
   </p>
 </div>
 <?php endif; ?>
@@ -88,16 +88,18 @@ $puedeGuardar = !empty($selloEstado['columna_ok']) && !empty($selloEstado['escri
   <div class="cesdia-firma-col cesdia-firma-col--editor">
     <div class="cesdia-card" style="padding:1rem;margin-bottom:1rem">
       <div class="card-header" style="margin-bottom:.75rem">
-        <span class="card-header-title">Subir sello (PNG o JPG)</span>
+        <span class="card-header-title">Subir sello (PNG, JPG, WEBP o GIF)</span>
       </div>
       <?= $this->Form->control('sello_archivo', [
           'type' => 'file',
           'label' => 'Seleccionar imagen',
-          'accept' => '.png,.jpg,.jpeg,image/png,image/jpeg',
+          'accept' => '.png,.jpg,.jpeg,.webp,.gif,image/png,image/jpeg,image/webp,image/gif',
           'required' => true,
           'id' => 'sello-archivo-input',
       ]) ?>
-      <p style="font-size:12px;color:var(--gmuted);margin:.75rem 0 0">Máximo 2 MB. Fondo transparente (PNG) funciona mejor en el PDF.</p>
+      <p id="sello-archivo-error" class="cesdia-field-error" style="display:none;margin:.5rem 0 0"></p>
+      <p style="font-size:12px;color:var(--gmuted);margin:.75rem 0 0">Máximo 5 MB. PNG, JPG, WEBP o GIF. Fondo transparente (PNG) funciona mejor en el PDF.</p>
+      <img id="sello-archivo-preview" alt="" style="display:none;margin-top:.75rem;max-width:100%;max-height:140px;border:1px solid var(--gborder);border-radius:6px;background:#fff">
     </div>
 
     <div style="display:flex;gap:.5rem;flex-wrap:wrap">
@@ -131,3 +133,69 @@ $puedeGuardar = !empty($selloEstado['columna_ok']) && !empty($selloEstado['escri
 </div>
 
 <?= $this->Form->end() ?>
+
+<script>
+(function () {
+  var inp = document.getElementById('sello-archivo-input');
+  var err = document.getElementById('sello-archivo-error');
+  var prev = document.getElementById('sello-archivo-preview');
+  var form = document.getElementById('form-sello-uv');
+  if (!inp || !form) {
+    return;
+  }
+  var MAX = 5 * 1024 * 1024;
+  var OK = /^(image\/(png|jpeg|jpg|webp|gif))$/i;
+  function mostrarError(msg) {
+    if (!err) {
+      return;
+    }
+    if (!msg) {
+      err.style.display = 'none';
+      err.textContent = '';
+      return;
+    }
+    err.textContent = msg;
+    err.style.display = 'block';
+  }
+  function validarArchivo(file) {
+    if (!file) {
+      return 'Seleccione una imagen del sello UV (PNG, JPG, WEBP o GIF).';
+    }
+    var tipo = (file.type || '').toLowerCase();
+    var nom = (file.name || '').toLowerCase();
+    var extOk = /\.(png|jpe?g|webp|gif)$/.test(nom);
+    if (tipo && !OK.test(tipo) && !extOk) {
+      return 'Formato no válido. Suba PNG, JPG, WEBP o GIF.';
+    }
+    if (!tipo && !extOk) {
+      return 'Formato no válido. Suba PNG, JPG, WEBP o GIF.';
+    }
+    if (file.size > MAX) {
+      return 'La imagen supera 5 MB. Elija un archivo más liviano.';
+    }
+    return '';
+  }
+  inp.addEventListener('change', function () {
+    var file = inp.files && inp.files[0];
+    var msg = validarArchivo(file);
+    mostrarError(msg);
+    if (prev) {
+      if (file && !msg) {
+        prev.src = URL.createObjectURL(file);
+        prev.style.display = 'block';
+      } else {
+        prev.removeAttribute('src');
+        prev.style.display = 'none';
+      }
+    }
+  });
+  form.addEventListener('submit', function (ev) {
+    var file = inp.files && inp.files[0];
+    var msg = validarArchivo(file);
+    if (msg) {
+      ev.preventDefault();
+      mostrarError(msg);
+    }
+  });
+})();
+</script>

@@ -10,7 +10,7 @@ use Psr\Http\Message\UploadedFileInterface;
 
 class UnidadesInspeccionController extends AppController
 {
-    private const SELLO_MAX_BYTES = 2 * 1024 * 1024;
+    private const SELLO_MAX_BYTES = 5 * 1024 * 1024;
 
     public function beforeFilter(\Cake\Event\EventInterface $event): void
     {
@@ -121,11 +121,8 @@ class UnidadesInspeccionController extends AppController
                 $this->Flash->error($selloPostError);
             } else {
                 $parsed = $this->_obtenerImagenSelloDesdeRequest();
-                if ($parsed === null) {
-                    $selloPostError = $this->_mensajeErrorSelloSinDatos();
-                    $this->Flash->error($selloPostError);
-                } elseif (strlen($parsed['bin']) > self::SELLO_MAX_BYTES) {
-                    $selloPostError = 'La imagen supera el tamaño máximo permitido (2 MB).';
+                if ($parsed['ok'] !== true) {
+                    $selloPostError = $parsed['error'];
                     $this->Flash->error($selloPostError);
                 } else {
                     try {
@@ -166,46 +163,134 @@ class UnidadesInspeccionController extends AppController
     }
 
     /**
-     * @return array{bin:string,ext:string}|null
+     * @return array{ok:true,bin:string,ext:string}|array{ok:false,error:string}
      */
-    private function _obtenerImagenSelloDesdeRequest(): ?array
+    private function _obtenerImagenSelloDesdeRequest(): array
     {
         $up = $this->request->getUploadedFile('sello_archivo');
-        if ($up instanceof UploadedFileInterface && $up->getError() === UPLOAD_ERR_OK) {
-            $size = $up->getSize();
-            $stream = $up->getStream();
-            if ($stream->isSeekable()) {
-                $stream->rewind();
+        if (!($up instanceof UploadedFileInterface)) {
+            $files = $this->request->getUploadedFiles();
+            $cand = $files['sello_archivo'] ?? null;
+            if ($cand instanceof UploadedFileInterface) {
+                $up = $cand;
             }
-            $bin = (string)$stream->getContents();
-            if ($bin === '') {
-                return null;
-            }
-            if (($size > 0 && $size > self::SELLO_MAX_BYTES) || strlen($bin) > self::SELLO_MAX_BYTES) {
-                return null;
-            }
-            $ext = $this->_extensionImagenSello($bin, (string)$up->getClientFilename());
-            if ($ext === null) {
-                return null;
-            }
+        }
 
-            return ['bin' => $bin, 'ext' => $ext];
+        if ($up instanceof UploadedFileInterface) {
+            $err = $up->getError();
+            if ($err !== UPLOAD_ERR_OK && $err !== UPLOAD_ERR_NO_FILE) {
+                return [
+                    'ok' => false,
+                    'error' => 'Error al subir el archivo: ' . $this->_mensajeErrorSubidaPhp($err)
+                        . ' (upload_max_filesize=' . (ini_get('upload_max_filesize') ?: '?') . ').',
+                ];
+            }
+            if ($err === UPLOAD_ERR_OK) {
+                $stream = $up->getStream();
+                if ($stream->isSeekable()) {
+                    $stream->rewind();
+                }
+                $bin = (string)$stream->getContents();
+
+                return $this->_validarYNormalizarSello($bin, (string)$up->getClientFilename());
+            }
         }
 
         if (isset($_FILES['sello_archivo']) && is_array($_FILES['sello_archivo'])) {
             $f = $_FILES['sello_archivo'];
-            if (($f['error'] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_OK && !empty($f['tmp_name']) && is_uploaded_file($f['tmp_name'])) {
+            $err = (int)($f['error'] ?? UPLOAD_ERR_NO_FILE);
+            if ($err !== UPLOAD_ERR_OK && $err !== UPLOAD_ERR_NO_FILE) {
+                return [
+                    'ok' => false,
+                    'error' => 'Error al subir el archivo: ' . $this->_mensajeErrorSubidaPhp($err)
+                        . ' (upload_max_filesize=' . (ini_get('upload_max_filesize') ?: '?') . ').',
+                ];
+            }
+            if ($err === UPLOAD_ERR_OK && !empty($f['tmp_name']) && is_uploaded_file($f['tmp_name'])) {
                 $bin = (string)file_get_contents($f['tmp_name']);
-                if ($bin !== '' && strlen($bin) <= self::SELLO_MAX_BYTES) {
-                    $ext = $this->_extensionImagenSello($bin, (string)($f['name'] ?? ''));
-                    if ($ext !== null) {
-                        return ['bin' => $bin, 'ext' => $ext];
-                    }
-                }
+
+                return $this->_validarYNormalizarSello($bin, (string)($f['name'] ?? ''));
             }
         }
 
-        return null;
+        return [
+            'ok' => false,
+            'error' => 'Seleccione un archivo de imagen (PNG, JPG, WEBP o GIF) del sello UV y pulse Guardar sello.',
+        ];
+    }
+
+    /**
+     * @return array{ok:true,bin:string,ext:string}|array{ok:false,error:string}
+     */
+    private function _validarYNormalizarSello(string $bin, string $clientName): array
+    {
+        if ($bin === '') {
+            return ['ok' => false, 'error' => 'El archivo está vacío. Elija otra imagen.'];
+        }
+        if (strlen($bin) > self::SELLO_MAX_BYTES) {
+            return ['ok' => false, 'error' => 'La imagen supera el tamaño máximo permitido (5 MB).'];
+        }
+
+        $info = @getimagesizefromstring($bin);
+        $tipo = is_array($info) ? (int)($info[2] ?? 0) : 0;
+        if ($tipo === IMAGETYPE_PNG) {
+            return ['ok' => true, 'bin' => $bin, 'ext' => 'png'];
+        }
+        if ($tipo === IMAGETYPE_JPEG) {
+            return ['ok' => true, 'bin' => $bin, 'ext' => 'jpg'];
+        }
+        if ($tipo === IMAGETYPE_WEBP || $tipo === IMAGETYPE_GIF) {
+            $png = $this->_convertirSelloAPng($bin, $tipo);
+            if ($png !== null) {
+                return ['ok' => true, 'bin' => $png, 'ext' => 'png'];
+            }
+
+            return [
+                'ok' => false,
+                'error' => 'Se recibió WEBP/GIF pero no se pudo convertir a PNG en el servidor.',
+            ];
+        }
+
+        $ext = $this->_extensionImagenSello($bin, $clientName);
+        if ($ext !== null) {
+            return ['ok' => true, 'bin' => $bin, 'ext' => $ext];
+        }
+
+        return [
+            'ok' => false,
+            'error' => 'El archivo debe ser una imagen PNG, JPG, WEBP o GIF (máximo 5 MB). '
+                . 'No se aceptan PDF ni otros formatos.',
+        ];
+    }
+
+    private function _convertirSelloAPng(string $bin, int $tipo): ?string
+    {
+        if (!function_exists('imagepng')) {
+            return null;
+        }
+        $im = match ($tipo) {
+            IMAGETYPE_WEBP => function_exists('imagecreatefromwebp')
+                ? @imagecreatefromstring($bin)
+                : false,
+            IMAGETYPE_GIF => @imagecreatefromstring($bin),
+            default => false,
+        };
+        if ($im === false) {
+            return null;
+        }
+        if (function_exists('imagesavealpha')) {
+            imagealphablending($im, false);
+            imagesavealpha($im, true);
+        }
+        ob_start();
+        $ok = imagepng($im, null, 6);
+        $out = (string)ob_get_clean();
+        imagedestroy($im);
+        if (!$ok || $out === '') {
+            return null;
+        }
+
+        return $out;
     }
 
     private function _extensionImagenSello(string $bin, string $clientName): ?string
@@ -261,30 +346,6 @@ class UnidadesInspeccionController extends AppController
             'php_post_max' => ini_get('post_max_size') ?: 'desconocido',
             'php_upload_max' => ini_get('upload_max_filesize') ?: 'desconocido',
         ];
-    }
-
-    private function _mensajeErrorSelloSinDatos(): string
-    {
-        $up = $this->request->getUploadedFile('sello_archivo');
-        if ($up instanceof UploadedFileInterface && $up->getError() !== UPLOAD_ERR_OK && $up->getError() !== UPLOAD_ERR_NO_FILE) {
-            return 'Error al subir el archivo: ' . $this->_mensajeErrorSubidaPhp($up->getError())
-                . ' (upload_max_filesize=' . (ini_get('upload_max_filesize') ?: '?') . ').';
-        }
-        if (isset($_FILES['sello_archivo']['error'])
-            && (int)$_FILES['sello_archivo']['error'] !== UPLOAD_ERR_OK
-            && (int)$_FILES['sello_archivo']['error'] !== UPLOAD_ERR_NO_FILE
-        ) {
-            return 'Error al subir el archivo: ' . $this->_mensajeErrorSubidaPhp((int)$_FILES['sello_archivo']['error'])
-                . ' (upload_max_filesize=' . (ini_get('upload_max_filesize') ?: '?') . ').';
-        }
-        if ($up instanceof UploadedFileInterface && $up->getError() === UPLOAD_ERR_OK) {
-            return 'El archivo debe ser PNG o JPG válido (no se aceptan PDF, WEBP ni otros formatos) y máximo 2 MB.';
-        }
-        if (isset($_FILES['sello_archivo']['error']) && (int)$_FILES['sello_archivo']['error'] === UPLOAD_ERR_OK) {
-            return 'El archivo debe ser PNG o JPG válido (no se aceptan PDF, WEBP ni otros formatos) y máximo 2 MB.';
-        }
-
-        return 'Seleccione un archivo PNG o JPG del sello / representante UV y pulse Guardar sello.';
     }
 
     private function _mensajeErrorSubidaPhp(int $code): string
