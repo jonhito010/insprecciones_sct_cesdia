@@ -17,7 +17,7 @@ use Cake\I18n\Date;
 use Cake\ORM\Entity;
 use Dompdf\Dompdf;
 use Dompdf\Options;
-use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
+use PhpOffice\PhpSpreadsheet\Writer\Xls;
 use Psr\Http\Message\UploadedFileInterface;
 
 class InspeccionesController extends AppController
@@ -1134,14 +1134,14 @@ class InspeccionesController extends AppController
         if ($buffer === false) {
             throw new \RuntimeException('No se pudo generar el archivo de exportación.');
         }
-        $writer = new Xlsx($spreadsheet);
+        $writer = new Xls($spreadsheet);
         $writer->save($buffer);
         rewind($buffer);
         $body = stream_get_contents($buffer) ?: '';
         fclose($buffer);
         $spreadsheet->disconnectWorksheets();
 
-        $filename = 'sct_export_' . date('Ymd_His') . '.xlsx';
+        $filename = 'sct_export_' . date('Ymd_His') . '.xls';
 
         // Registrar exportación
         $tabla = $this->fetchTable('SctExportaciones');
@@ -1156,7 +1156,7 @@ class InspeccionesController extends AppController
 
         return $this->response
             ->withStringBody($body)
-            ->withType('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+            ->withType('application/vnd.ms-excel')
             ->withHeader('Content-Disposition', 'attachment; filename="' . $filename . '"');
     }
 

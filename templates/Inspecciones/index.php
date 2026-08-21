@@ -102,7 +102,7 @@ $totalPagina = method_exists($inspecciones, 'count') ? $inspecciones->count() : 
       'type' => 'submit',
       'formaction' => $this->Url->build(['action' => 'exportSct']),
       'class' => 'btn-cesdia btn-cesdia-secondary',
-      'title' => 'Descarga Excel SCT con los filtros actuales',
+      'title' => 'Descarga Excel 97-2013 (.xls) con los filtros actuales',
   ]) ?>
   <?php endif; ?>
 <?= $this->Form->end() ?>
