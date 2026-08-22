@@ -636,12 +636,24 @@ class InspeccionesTable extends Table
                         'Inspecciones.dictamen' => 'CUMPLE',
                         'Inspecciones.resultado' => 'APROBADO',
                     ],
+                    'NOT' => [
+                        'OR' => [
+                            'Inspecciones.estatus_registro' => 'CANCELADA',
+                            'Inspecciones.resultado' => 'CANCELADO',
+                        ],
+                    ],
                 ]);
             } elseif ($res === 'RECHAZADO' || $res === 'NO CUMPLE') {
                 $query->where([
                     'OR' => [
                         'Inspecciones.dictamen' => 'NO CUMPLE',
                         'Inspecciones.resultado' => 'RECHAZADO',
+                    ],
+                    'NOT' => [
+                        'OR' => [
+                            'Inspecciones.estatus_registro' => 'CANCELADA',
+                            'Inspecciones.resultado' => 'CANCELADO',
+                        ],
                     ],
                 ]);
             } elseif ($res === 'CANCELADO' || $res === 'CANCELADA') {

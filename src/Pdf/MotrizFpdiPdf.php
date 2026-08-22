@@ -43,6 +43,8 @@ final class MotrizFpdiPdf
     private const BLOQUE1_HORAS_DX_PT = 2.0 * 72.0 / 25.4;
     /** Bloque 1: hora inicio/fin 4 mm adicionales hacia arriba. */
     private const BLOQUE1_HORAS_EXTRA_SUBE_Y_PT = -4.0 * 72.0 / 25.4;
+    /** Bloque 1: hora inicio/fin 2 mm hacia abajo (solo este bloque). */
+    private const BLOQUE1_HORAS_BAJA_Y_PT = 2.0 * 72.0 / 25.4;
     /** @var list<string> */
     private const BLOQUE1_HORAS = [
         'hora_inicio',
@@ -57,9 +59,13 @@ final class MotrizFpdiPdf
     /** Bloque 3: firma 1 cm abajo, 4 cm a la derecha y mismo tamaño que bloques 1 y 2. */
     private const BLOQUE3_FIRMA_BAJA_Y_PT = 10.0 * 72.0 / 25.4;
     private const BLOQUE3_FIRMA_DX_PT = 40.0 * 72.0 / 25.4;
-    private const BLOQUE3_FIRMA_ESCALA = 1.3;
+    private const BLOQUE3_FIRMA_ESCALA = 1.5;
     /** Bloque 3: nombre del técnico 5 mm hacia abajo. */
     private const BLOQUE3_TECNICO_BAJA_Y_PT = 5.0 * 72.0 / 25.4;
+    /** Bloque 3: hora inicio/fin 2 mm a la derecha (solo este bloque). */
+    private const BLOQUE3_HORAS_DX_PT = 2.0 * 72.0 / 25.4;
+    /** Bloque 3: observaciones 3 mm a la derecha. */
+    private const BLOQUE3_OBS_DX_PT = 3.0 * 72.0 / 25.4;
     /** Bloque 3: subir 2 mm adicionales estos campos. */
     private const BLOQUE3_CAMPOS_SUBE_Y_PT = -2.0 * 72.0 / 25.4;
     /** @var list<string> */
@@ -73,17 +79,26 @@ final class MotrizFpdiPdf
         'observaciones',
         'tecnico_verificador',
     ];
+    /** Bloque 3: folio TC, NIV, se presentó y odómetro 2 mm hacia abajo. */
+    private const BLOQUE3_FOLIO_NIV_PRES_ODO_BAJA_Y_PT = 2.0 * 72.0 / 25.4;
+    /** @var list<string> */
+    private const BLOQUE3_FOLIO_NIV_PRES_ODO = [
+        'folio_tc',
+        'niv',
+        'presentado',
+        'odometro',
+    ];
     /** Firma bloque 1: 3 cm derecha, 1 cm abajo. */
     private const FIRMA_BLOQUE1_DX_PT = 30.0 * 72.0 / 25.4;
     private const FIRMA_BLOQUE1_DY_PT = 10.0 * 72.0 / 25.4;
     /** Bloque 1: firma más grande y 1 cm hacia arriba. */
-    private const BLOQUE1_FIRMA_ESCALA = 1.3;
+    private const BLOQUE1_FIRMA_ESCALA = 1.5;
     private const BLOQUE1_FIRMA_SUBE_Y_PT = -10.0 * 72.0 / 25.4;
     /** Firma bloque 2: 3 cm derecha, 1 cm abajo. */
     private const FIRMA_BLOQUE2_DX_PT = 30.0 * 72.0 / 25.4;
     private const FIRMA_BLOQUE2_DY_PT = 10.0 * 72.0 / 25.4;
     /** Bloque 2: firma más grande. */
-    private const BLOQUE2_FIRMA_ESCALA = 1.3;
+    private const BLOQUE2_FIRMA_ESCALA = 1.5;
     /** Bloque 2: placa y fecha extra, 4 cm a la derecha del nombre (misma altura; ya no baja 2 cm). */
     private const BLOQUE2_EXTRA_PLACA_FECHA_DX_PT = 36.0 * 72.0 / 25.4;
     private const BLOQUE2_EXTRA_PLACA_FECHA_DY_PT = 8.0 * 72.0 / 25.4;
@@ -134,6 +149,8 @@ final class MotrizFpdiPdf
     private const BLOQUE1_NOMBRE_SUBE_Y_PT = -10.0 * 72.0 / 25.4;
     /** Bloque 1: razón social 4 mm hacia abajo. */
     private const BLOQUE1_NOMBRE_BAJA_Y_PT = 4.0 * 72.0 / 25.4;
+    /** Bloque 1: domicilio 3 mm a la derecha (solo este campo). */
+    private const BLOQUE1_DOMICILIO_DX_PT = 3.0 * 72.0 / 25.4;
     /** Bloque 1: RFC, domicilio, municipio, estado, CP, placas, NIV, tipo, marca y año 2 mm arriba. */
     private const BLOQUE1_DATOS_SUBE_Y_PT = -2.0 * 72.0 / 25.4;
     /** @var list<string> */
@@ -174,6 +191,8 @@ final class MotrizFpdiPdf
     private const BLOQUE2_HORAS_DX_PT = 2.0 * 72.0 / 25.4;
     /** Bloque 2: hora inicio/fin 4 mm hacia arriba. */
     private const BLOQUE2_HORAS_SUBE_Y_PT = -4.0 * 72.0 / 25.4;
+    /** Bloque 2: hora inicio/fin 2 mm hacia abajo (solo este bloque). */
+    private const BLOQUE2_HORAS_BAJA_Y_PT = 2.0 * 72.0 / 25.4;
     /** Bloque 2: bajar 1 mm RFC, dirección y CP. */
     private const BLOQUE2_RFC_DIR_CP_BAJA_Y_PT = 1.0 * 72.0 / 25.4;
     /** @var list<string> */
@@ -193,6 +212,8 @@ final class MotrizFpdiPdf
     ];
     /** Bloque 2: domicilio 1 cm a la derecha. */
     private const BLOQUE2_DOMICILIO_DX_PT = 10.0 * 72.0 / 25.4;
+    /** Bloque 2: observaciones 3 mm a la derecha. */
+    private const BLOQUE2_OBS_DX_PT = 3.0 * 72.0 / 25.4;
     /** Bloque 2: placas, NIV, tipo, marca y año 3 mm hacia abajo. */
     private const BLOQUE2_VEHICULO_BAJA_Y_PT = 3.0 * 72.0 / 25.4;
     /** @var list<string> */
@@ -458,6 +479,9 @@ final class MotrizFpdiPdf
         $u = $inspeccion->get('unidades_inspeccion') ?? $inspeccion->get('unidad_inspeccion');
 
         $mun = $p !== null ? trim((string)($p->get('municipio') ?? '')) : '';
+        if (preg_match('/^LOC\.?\s*/iu', $mun) === 1) {
+            $mun = trim((string)preg_replace('/^LOC\.?\s*/iu', '', $mun));
+        }
         $est = $p !== null ? trim((string)($p->get('estado') ?? '')) : '';
         $cp = $p !== null ? trim((string)($p->get('codigo_postal') ?? '')) : '';
 
@@ -492,7 +516,7 @@ final class MotrizFpdiPdf
             'propietario_nombre'  => $base['propietario_nombre'] ?? '',
             'propietario_rfc'     => $base['propietario_rfc_solo'] ?? '',
             'propietario_calle'   => $base['propietario_calle_solo'] ?? '',
-            'propietario_loc'     => $mun !== '' ? 'LOC. ' . $mun : '',
+            'propietario_loc'     => $mun,
             'propietario_estado'  => $est,
             'propietario_cp'      => $cp,
             'placas'              => $base['placas'] ?? '',
@@ -523,6 +547,7 @@ final class MotrizFpdiPdf
                 $pos['x'] += self::BLOQUE1_HORAS_DX_PT;
                 $pos['y'] += self::BLOQUE1_HORAS_SUBE_Y_PT;
                 $pos['y'] += self::BLOQUE1_HORAS_EXTRA_SUBE_Y_PT;
+                $pos['y'] += self::BLOQUE1_HORAS_BAJA_Y_PT;
             }
             if ($campo !== '' && in_array($campo, self::BLOQUE1_CAMPOS_SUBE, true)) {
                 $pos['y'] += self::BLOQUE1_SUBE_Y_PT;
@@ -545,6 +570,9 @@ final class MotrizFpdiPdf
                 $pos['y'] += self::BLOQUE1_NOMBRE_SUBE_Y_PT;
                 $pos['y'] += self::BLOQUE1_NOMBRE_BAJA_Y_PT;
             }
+            if ($campo === 'propietario_calle') {
+                $pos['x'] += self::BLOQUE1_DOMICILIO_DX_PT;
+            }
             if (in_array($campo, self::BLOQUE1_DATOS_SUBE, true)) {
                 $pos['y'] += self::BLOQUE1_DATOS_SUBE_Y_PT;
             }
@@ -562,6 +590,7 @@ final class MotrizFpdiPdf
             if (in_array($campo, self::BLOQUE1_HORAS, true)) {
                 $pos['x'] += self::BLOQUE2_HORAS_DX_PT;
                 $pos['y'] += self::BLOQUE2_HORAS_SUBE_Y_PT;
+                $pos['y'] += self::BLOQUE2_HORAS_BAJA_Y_PT;
             }
             if ($campo !== '' && in_array($campo, self::BLOQUE2_CAMPOS_RFC_DIR_CP_BAJA, true)) {
                 $pos['y'] += self::BLOQUE2_RFC_DIR_CP_BAJA_Y_PT;
@@ -579,6 +608,7 @@ final class MotrizFpdiPdf
                 $pos['y'] += self::BLOQUE2_FOLIO_ODO_PRES_BAJA_Y_PT;
             }
             if ($campo === 'observaciones') {
+                $pos['x'] += self::BLOQUE2_OBS_DX_PT;
                 $pos['size'] = self::BLOQUE1_OBS_FONT_SIZE;
             }
             if ($campo === 'firma') {
@@ -593,8 +623,17 @@ final class MotrizFpdiPdf
             if ($campo !== '' && in_array($campo, self::BLOQUE3_CAMPOS_SUBE, true)) {
                 $pos['y'] += self::BLOQUE3_CAMPOS_SUBE_Y_PT;
             }
+            if (in_array($campo, self::BLOQUE3_FOLIO_NIV_PRES_ODO, true)) {
+                $pos['y'] += self::BLOQUE3_FOLIO_NIV_PRES_ODO_BAJA_Y_PT;
+            }
+            if (in_array($campo, self::BLOQUE1_HORAS, true)) {
+                $pos['x'] += self::BLOQUE3_HORAS_DX_PT;
+            }
             if ($campo === 'tecnico_verificador') {
                 $pos['y'] += self::BLOQUE3_TECNICO_BAJA_Y_PT;
+            }
+            if ($campo === 'observaciones') {
+                $pos['x'] += self::BLOQUE3_OBS_DX_PT;
             }
             if ($campo === 'firma') {
                 $pos['x'] += self::BLOQUE3_FIRMA_DX_PT;

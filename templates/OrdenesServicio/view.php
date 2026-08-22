@@ -12,7 +12,11 @@ $uv = $orden->unidades_inspeccion ?? $orden->unidad_inspeccion ?? null;
     <p><strong>Fecha contrato:</strong> <?= $orden->fecha_contrato ? h($orden->fecha_contrato->format('d/m/Y')) : '—' ?></p>
     <p><strong>Solicitante:</strong> <?= h($orden->propietario->nombre_razon_social ?? '—') ?></p>
     <p><strong>Placas / NIV:</strong> <?= h($orden->vehiculo->placas ?? '—') ?> / <?= h($orden->vehiculo->niv ?? '—') ?></p>
-    <p><strong>Tipo vehículo:</strong> <?= h($orden->vehiculo->tipo_vehiculo ?? '—') ?></p>
+    <p><strong>Tipo vehículo:</strong> <?= h(
+        !empty($orden->vehiculo->tipo_vehiculo)
+            ? \App\Export\SctExcelExporter::codigoTipoVehiculoExcel((string)$orden->vehiculo->tipo_vehiculo)
+            : '—'
+    ) ?></p>
     <p><strong>UV acreditación / aprobación:</strong>
       <?= h($uv->numero_acreditacion ?? '—') ?> / <?= h($uv->numero_aprobacion ?? ($uv->aprobacion ?? '—')) ?>
     </p>

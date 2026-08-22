@@ -424,7 +424,29 @@ if (!$esEdicion && $folioTipoIni === '' && $folioEsperadoFormulario !== null) {
         ]) ?>
       <?php endif; ?>
       <div class="cesdia-form-group">
-        <?= $this->Form->control('vehiculo.placas', ['label' => ['text' => 'Placas', 'class' => 'cesdia-label'], 'class' => 'cesdia-input', 'value' => $vehiculo ? ($vehiculo->placas ?? '') : '']) ?>
+        <?php
+        $vehIdActual = $vehiculo && !empty($vehiculo->id) ? (int)$vehiculo->id : 0;
+        $placasActual = $vehiculo ? trim((string)($vehiculo->placas ?? '')) : '';
+        ?>
+        <?= $this->Form->hidden('vehiculo.id', [
+          'id' => 'cesdia-vehiculo-id',
+          'value' => $vehIdActual > 0 ? $vehIdActual : '',
+        ]) ?>
+        <label class="cesdia-label" for="cesdia-vehiculo-placas">Placas</label>
+        <div class="cesdia-placas-ac">
+          <?= $this->Form->text('vehiculo.placas', [
+            'id' => 'cesdia-vehiculo-placas',
+            'class' => 'cesdia-input',
+            'value' => $placasActual,
+            'autocomplete' => 'off',
+            'maxlength' => 12,
+            'placeholder' => 'Escriba las placas',
+          ]) ?>
+          <ul id="cesdia-placas-sugerencias" class="cesdia-placas-ac__list" hidden></ul>
+        </div>
+        <p style="margin:.35rem 0 0;font-size:12px;color:var(--gmuted)">
+          Si las placas ya existen, elija una sugerencia para llenar el vehículo y el propietario. Si es nuevo, deje las placas escritas y complete el resto.
+        </p>
       </div>
       <div class="cesdia-form-group">
         <?= $this->Form->control('vehiculo.niv', [
@@ -2490,6 +2512,222 @@ echo $this->element($armador, [
   });
 })();
 </script>
+<script>
+(function () {
+  var urlVeh = <?= json_encode($this->Url->build('/inspecciones/buscar-vehiculo'), JSON_HEX_TAG | JSON_HEX_APOS | JSON_UNESCAPED_UNICODE) ?>;
+  var input = document.getElementById('cesdia-vehiculo-placas');
+  var list = document.getElementById('cesdia-placas-sugerencias');
+  var hidVehId = document.getElementById('cesdia-vehiculo-id');
+  if (!input || !list) {
+    return;
+  }
+  var tBuscar = null;
+  var placasElegidas = String(input.value || '').trim().toUpperCase();
+
+  function setCampo(id, val) {
+    var el = document.getElementById(id);
+    if (!el) {
+      return;
+    }
+    var v = val == null ? '' : String(val);
+    if (el.tagName === 'SELECT') {
+      var found = false;
+      var i;
+      for (i = 0; i < el.options.length; i++) {
+        if (el.options[i].value === v) {
+          found = true;
+          break;
+        }
+      }
+      if (!found && v !== '') {
+        el.appendChild(new Option(v, v, true, true));
+      }
+    }
+    el.value = v;
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+    el.dispatchEvent(new Event('change', { bubbles: true }));
+  }
+
+  function setMarca(val) {
+    var v = val == null ? '' : String(val).toUpperCase();
+    var $marca = $('#vehiculo-marca');
+    if (!$marca.length) {
+      setCampo('vehiculo-marca', v);
+      return;
+    }
+    if (v && $marca.find('option').filter(function () {
+      return String(this.value).toUpperCase() === v;
+    }).length === 0) {
+      $marca.append(new Option(v, v, true, true));
+    }
+    $marca.val(v).trigger('change');
+  }
+
+  function llenarPropietario(p) {
+    var hidProp = document.getElementById('cesdia-propietario-id');
+    var $buscarProp = $('#cesdia-propietario-buscar');
+    if (!p) {
+      if (hidProp) {
+        hidProp.value = '';
+      }
+      return;
+    }
+    if (hidProp) {
+      hidProp.value = p.id ? String(p.id) : '';
+    }
+    if ($buscarProp.length && typeof $buscarProp.select2 === 'function' && p.id) {
+      var txt = p.text || p.nombre_razon_social || '';
+      if ($buscarProp.find('option[value="' + String(p.id) + '"]').length === 0) {
+        $buscarProp.append(new Option(txt, String(p.id), true, true));
+      }
+      $buscarProp.val(String(p.id)).trigger('change');
+    }
+    setCampo('cesdia-prop-nombre', p.nombre_razon_social);
+    setCampo('cesdia-prop-rfc', p.rfc);
+    setCampo('cesdia-prop-calle', p.calle_numero);
+    setCampo('cesdia-prop-municipio', p.municipio);
+    setCampo('cesdia-prop-estado', p.estado);
+    setCampo('cesdia-codigo-postal', p.codigo_postal);
+    setCampo('cesdia-prop-correo', p.correo);
+    setCampo('cesdia-prop-telefono', p.telefono);
+  }
+
+  function llenarVehiculo(v) {
+    if (!v) {
+      return;
+    }
+    if (hidVehId) {
+      hidVehId.value = v.id ? String(v.id) : '';
+    }
+    input.value = v.placas || '';
+    placasElegidas = String(v.placas || '').trim().toUpperCase();
+    setCampo('cesdia-vehiculo-niv', v.niv);
+    setCampo('vehiculo-folio-tc', v.folio_tc);
+    setMarca(v.marca);
+    setCampo('vehiculo-anio', v.anio);
+    setCampo('cesdia-tipo-vehiculo', v.tipo_vehiculo);
+    var hdnTs = document.getElementById('cesdia-ts-hdn');
+    if (hdnTs) {
+      hdnTs.value = v.tipo_servicio || '';
+    }
+    var fed = document.getElementById('cesdia-ts-fed');
+    var priv = document.getElementById('cesdia-ts-priv');
+    if (fed && v.tipo_servicio) {
+      fed.value = v.tipo_servicio;
+    }
+    if (priv && v.tipo_servicio) {
+      priv.value = v.tipo_servicio;
+    }
+    var mod = document.querySelector('select[name="vehiculo[modalidad]"]');
+    if (mod) {
+      mod.value = v.modalidad || '';
+      mod.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+    if (typeof window.cesdiaSyncTipoServicio === 'function') {
+      window.cesdiaSyncTipoServicio();
+    }
+    setCampo('vehiculo-detalle-servicio', v.detalle_servicio);
+    setCampo('vehiculo-tipo-capacidad', v.tipo_capacidad);
+    setCampo('vehiculo-cantidad-capacidad', v.cantidad_capacidad);
+    setCampo('cesdia-vehiculo-ejes', v.ejes);
+  }
+
+  function ocultarLista() {
+    list.hidden = true;
+    list.innerHTML = '';
+  }
+
+  function marcarComoNuevo() {
+    if (hidVehId) {
+      hidVehId.value = '';
+    }
+    placasElegidas = '';
+  }
+
+  function mostrarLista(rows) {
+    list.innerHTML = '';
+    if (!rows || !rows.length) {
+      ocultarLista();
+      return;
+    }
+    rows.forEach(function (r) {
+      var li = document.createElement('li');
+      li.className = 'cesdia-placas-ac__item';
+      li.setAttribute('role', 'option');
+      li.textContent = r.text || (r.vehiculo && r.vehiculo.placas) || '';
+      li.addEventListener('mousedown', function (ev) {
+        ev.preventDefault();
+        if (r.vehiculo) {
+          llenarVehiculo(r.vehiculo);
+          llenarPropietario(r.propietario);
+        }
+        ocultarLista();
+      });
+      list.appendChild(li);
+    });
+    list.hidden = false;
+  }
+
+  function buscar(q) {
+    var term = String(q || '').trim();
+    if (term.length < 1) {
+      ocultarLista();
+      return;
+    }
+    fetch(urlVeh + '?q=' + encodeURIComponent(term), {
+      credentials: 'same-origin',
+      headers: { 'Accept': 'application/json' }
+    })
+      .then(function (res) { return res.json(); })
+      .then(function (data) {
+        var actual = String(input.value || '').trim();
+        if (actual !== term && actual.toUpperCase() !== term.toUpperCase()) {
+          return;
+        }
+        mostrarLista((data && data.results) ? data.results : []);
+      })
+      .catch(function () {
+        ocultarLista();
+      });
+  }
+
+  input.addEventListener('input', function () {
+    var val = String(input.value || '').toUpperCase();
+    if (input.value !== val) {
+      var pos = input.selectionStart;
+      input.value = val;
+      if (typeof pos === 'number') {
+        input.setSelectionRange(pos, pos);
+      }
+    }
+    if (placasElegidas && val.trim() !== placasElegidas) {
+      marcarComoNuevo();
+    }
+    if (tBuscar) {
+      clearTimeout(tBuscar);
+    }
+    tBuscar = setTimeout(function () {
+      buscar(input.value);
+    }, 220);
+  });
+
+  input.addEventListener('focus', function () {
+    if (String(input.value || '').trim() !== '') {
+      buscar(input.value);
+    }
+  });
+
+  input.addEventListener('blur', function () {
+    setTimeout(ocultarLista, 150);
+  });
+
+  input.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') {
+      ocultarLista();
+    }
+  });
+})();
+</script>
 <style>
 .cesdia-select2-marca + .select2-container,
 #cesdia-propietario-buscar + .select2-container {
@@ -2530,6 +2768,30 @@ echo $this->element($armador, [
 }
 .select2-container--default .select2-results__option--highlighted.select2-results__option--selectable {
   background: var(--app-emerald, #059669);
+}
+.cesdia-placas-ac { position: relative; }
+.cesdia-placas-ac__list {
+  position: absolute;
+  z-index: 40;
+  left: 0; right: 0; top: 100%;
+  margin: 2px 0 0;
+  padding: 4px 0;
+  list-style: none;
+  max-height: 220px;
+  overflow-y: auto;
+  background: #fff;
+  border: 1px solid var(--border, #d1d5db);
+  border-radius: 8px;
+  box-shadow: 0 8px 20px rgba(15, 23, 42, .12);
+}
+.cesdia-placas-ac__item {
+  padding: 8px 12px;
+  font-size: 13px;
+  cursor: pointer;
+}
+.cesdia-placas-ac__item:hover {
+  background: var(--app-emerald, #059669);
+  color: #fff;
 }
 </style>
 <?php $this->end(); ?>

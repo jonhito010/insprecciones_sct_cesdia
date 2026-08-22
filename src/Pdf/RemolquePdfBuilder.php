@@ -48,10 +48,13 @@ final class RemolquePdfBuilder
         $rfc = self::strEnt($p, 'rfc');
         $calle = self::strEnt($p, 'calle_numero');
         $mun = self::strEnt($p, 'municipio');
+        if (preg_match('/^LOC\.?\s*/iu', $mun) === 1) {
+            $mun = trim((string)preg_replace('/^LOC\.?\s*/iu', '', $mun));
+        }
         $est = self::strEnt($p, 'estado');
         $cp = self::strEnt($p, 'codigo_postal');
         $loc = trim(implode(' ', array_filter([
-            $mun !== '' ? 'LOC. ' . $mun : '',
+            $mun,
             $est,
             $cp !== '' ? 'C.P. ' . $cp : '',
         ])));

@@ -196,7 +196,7 @@ final class SctExcelExporter
     /**
      * Código SCT en Excel: C2L / C2L6 se reportan como C2, con espacio (C 2).
      */
-    private static function codigoTipoVehiculoExcel(?string $tv): string
+    public static function codigoTipoVehiculoExcel(?string $tv): string
     {
         $raw = strtoupper(str_replace(['-', ' '], '', trim((string)$tv)));
         if ($raw === 'C2L' || $raw === 'C2L6' || str_starts_with($raw, 'C2L')) {

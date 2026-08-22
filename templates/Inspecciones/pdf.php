@@ -51,7 +51,9 @@ $rfc = $p && !empty($p->rfc) ? h($p->rfc) : '________________';
 $placas = $v && !empty($v->placas) ? h($v->placas) : '____________';
 $modelo = $v && !empty($v->anio) ? h((string)$v->anio) : '____________';
 $niv = $v && !empty($v->niv) ? h($v->niv) : '____________________';
-$tipoVeh = $v && !empty($v->tipo_vehiculo) ? h($v->tipo_vehiculo) : '';
+$tipoVehRaw = $v && !empty($v->tipo_vehiculo) ? (string)$v->tipo_vehiculo : '';
+$tipoVehFmt = $tipoVehRaw !== '' ? \App\Export\SctExcelExporter::codigoTipoVehiculoExcel($tipoVehRaw) : '';
+$tipoVeh = $tipoVehFmt !== '' ? h($tipoVehFmt) : '';
 $tecnico = $t && !empty($t->nombre) ? h($t->nombre) : '________________';
 $equipoInspeccion = $equipoDesdeOrden !== ''
     ? h($equipoDesdeOrden)

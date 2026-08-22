@@ -22,10 +22,12 @@ $qBusqueda = trim((string)($filtros['q'] ?? ''));
 $fechaDesde = (string)($filtros['fecha_desde'] ?? '');
 $fechaHasta = (string)($filtros['fecha_hasta'] ?? '');
 $tecnicoId = isset($filtros['tecnico_id']) ? (string)$filtros['tecnico_id'] : '';
+$estatusFiltro = strtoupper(trim((string)($filtros['resultado'] ?? '')));
 $filtrosActivos = $qBusqueda !== ''
     || $fechaDesde !== ''
     || $fechaHasta !== ''
-    || $tecnicoId !== '';
+    || $tecnicoId !== ''
+    || $estatusFiltro !== '';
 
 $totalPagina = method_exists($inspecciones, 'count') ? $inspecciones->count() : iterator_count($inspecciones);
 ?>
@@ -80,6 +82,19 @@ $totalPagina = method_exists($inspecciones, 'count') ? $inspecciones->count() : 
         'id' => 'insp-fecha-hasta',
         'value' => $fechaHasta,
         'class' => 'cesdia-input',
+    ]) ?>
+  </div>
+  <div class="insp-list-searchbar__estatus">
+    <label class="cesdia-label" for="insp-estatus">Estatus</label>
+    <?= $this->Form->select('resultado', [
+        'CUMPLE' => 'CUMPLE',
+        'NO CUMPLE' => 'NO CUMPLE',
+        'CANCELADO' => 'Cancelada',
+    ], [
+        'id' => 'insp-estatus',
+        'empty' => 'Todos',
+        'value' => $estatusFiltro,
+        'class' => 'cesdia-select',
     ]) ?>
   </div>
   <?php if (!empty($tecnicos)) : ?>
@@ -341,17 +356,20 @@ $totalPagina = method_exists($inspecciones, 'count') ? $inspecciones->count() : 
   height: 38px;
 }
 .insp-list-searchbar__dates,
-.insp-list-searchbar__tec {
+.insp-list-searchbar__tec,
+.insp-list-searchbar__estatus {
   display: flex;
   flex-direction: column;
   gap: 4px;
 }
 .insp-list-searchbar__dates .cesdia-input,
-.insp-list-searchbar__tec .cesdia-select {
+.insp-list-searchbar__tec .cesdia-select,
+.insp-list-searchbar__estatus .cesdia-select {
   height: 38px;
   min-width: 140px;
 }
 .insp-list-searchbar__tec .cesdia-select { min-width: 160px; }
+.insp-list-searchbar__estatus .cesdia-select { min-width: 150px; }
 .insp-list-searchbar .cesdia-label {
   margin: 0;
   font-size: 11px;

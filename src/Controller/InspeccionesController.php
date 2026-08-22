@@ -26,6 +26,7 @@ class InspeccionesController extends AppController
     public function index(): void
     {
         $filtros = $this->_filtrosConsultaInspeccionesFromRequest();
+        $filtros['mostrar_canceladas'] = '1';
 
         $query = $this->Inspecciones->find('conFiltros', $filtros);
 
@@ -394,6 +395,99 @@ class InspeccionesController extends AppController
             $results[] = [
                 'id' => (int)$p->id,
                 'text' => $text !== '' ? $text : ('#' . (int)$p->id),
+                'propietario' => $prop,
+            ];
+        }
+
+        return $this->response
+            ->withType('application/json')
+            ->withStringBody(json_encode(['results' => $results], JSON_UNESCAPED_UNICODE));
+    }
+
+    /**
+     * Select2 · JSON: buscar vehículos por placas o NIV.
+     * GET /inspecciones/buscar-vehiculo?q=texto
+     */
+    public function buscarVehiculo(): Response
+    {
+        $this->request->allowMethod(['get']);
+        $q = trim((string)$this->request->getQuery('q'));
+        $tabla = $this->fetchTable('Vehiculos');
+        $schema = $tabla->getSchema();
+        $query = $tabla->find()
+            ->contain(['Propietarios'])
+            ->orderByDesc('Vehiculos.id')
+            ->limit(40);
+        if ($q !== '') {
+            $like = '%' . str_replace(['%', '_'], ['\\%', '\\_'], $q) . '%';
+            $or = [
+                'Vehiculos.placas LIKE' => $like,
+                'Vehiculos.niv LIKE' => $like,
+            ];
+            if ($schema->hasColumn('marca')) {
+                $or['Vehiculos.marca LIKE'] = $like;
+            }
+            $query->where(['OR' => $or]);
+        }
+
+        $results = [];
+        foreach ($query as $v) {
+            $placas = strtoupper(trim((string)($v->placas ?? '')));
+            $niv = trim((string)($v->niv ?? ''));
+            $marca = trim((string)($v->marca ?? ''));
+            $tipo = trim((string)($v->tipo_vehiculo ?? ''));
+            $partes = array_filter([$placas !== '' ? $placas : null, $tipo !== '' ? $tipo : null, $marca !== '' ? $marca : null]);
+            $text = implode(' · ', $partes);
+            if ($niv !== '') {
+                $text .= ($text !== '' ? ' · ' : '') . $niv;
+            }
+
+            $veh = [
+                'id' => (int)$v->id,
+                'placas' => $placas,
+                'niv' => $niv,
+                'folio_tc' => (string)($v->folio_tc ?? ''),
+                'marca' => $marca,
+                'anio' => $v->anio !== null && $v->anio !== '' ? (string)$v->anio : '',
+                'modalidad' => (string)($v->modalidad ?? ''),
+                'tipo_servicio' => (string)($v->tipo_servicio ?? ''),
+                'tipo_vehiculo' => $tipo,
+            ];
+            foreach (['detalle_servicio', 'tipo_capacidad', 'cantidad_capacidad', 'ejes'] as $col) {
+                if ($schema->hasColumn($col)) {
+                    $val = $v->get($col);
+                    $veh[$col] = $val !== null && $val !== '' ? (string)$val : '';
+                }
+            }
+
+            $prop = null;
+            $p = $v->propietario ?? null;
+            if ($p !== null) {
+                $nom = trim((string)($p->nombre_razon_social ?? ''));
+                $rfc = trim((string)($p->rfc ?? ''));
+                $pSchema = $this->fetchTable('Propietarios')->getSchema();
+                $prop = [
+                    'id' => (int)$p->id,
+                    'nombre_razon_social' => $nom,
+                    'rfc' => $rfc,
+                    'calle_numero' => (string)($p->calle_numero ?? ''),
+                    'municipio' => (string)($p->municipio ?? ''),
+                    'estado' => (string)($p->estado ?? ''),
+                    'codigo_postal' => (string)($p->codigo_postal ?? ''),
+                    'text' => $rfc !== '' ? $nom . ' · ' . $rfc : $nom,
+                ];
+                if ($pSchema->hasColumn('correo')) {
+                    $prop['correo'] = (string)($p->correo ?? '');
+                }
+                if ($pSchema->hasColumn('telefono')) {
+                    $prop['telefono'] = (string)($p->telefono ?? '');
+                }
+            }
+
+            $results[] = [
+                'id' => $placas !== '' ? $placas : ('ID' . (int)$v->id),
+                'text' => $text !== '' ? $text : ('#' . (int)$v->id),
+                'vehiculo' => $veh,
                 'propietario' => $prop,
             ];
         }
